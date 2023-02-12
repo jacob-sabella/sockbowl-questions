@@ -1,0 +1,13 @@
+package com.soulsoftworks.sockbowlquestions;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class SockbowlQuestionsApplicationTests {
+
+	@Test
+	void contextLoads() {
+	}
+
+}
