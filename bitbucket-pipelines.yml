@@ -15,6 +15,7 @@ pipelines:
           - docker
         script:
           - export TESTCONTAINERS_RYUK_DISABLED=true
+          - chmod +x gradlew
           - ./gradlew build
         after-script:
           - pipe: atlassian/checkstyle-report:0.3.0
