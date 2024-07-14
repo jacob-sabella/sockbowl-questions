@@ -1,2 +1,2 @@
-docker tag sockbowl-questions:0.0.1-SNAPSHOT docker1.lan:5469/sockbowl/sockbowl-questions:latest
-docker push docker1.lan:5469/sockbowl/sockbowl-questions:latest
+docker tag sockbowl-questions:0.0.1-SNAPSHOT 339712961919.dkr.ecr.us-east-1.amazonaws.com/sockbowl-questions:latest
+docker push 339712961919.dkr.ecr.us-east-1.amazonaws.com/sockbowl-questions:latest
