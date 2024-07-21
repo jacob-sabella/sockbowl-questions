@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.0.2'
+	id 'org.springframework.boot' version '3.1.4'
 	id 'io.spring.dependency-management' version '1.1.0'
 }
 
@@ -15,19 +15,14 @@ repositories {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter'
 	implementation 'org.springframework.boot:spring-boot-starter-data-neo4j'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-
+        implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'com.google.code.gson:gson:2.10.1'
-
-	compileOnly 'org.projectlombok:lombok:1.18.24'
-	annotationProcessor 'org.projectlombok:lombok:1.18.24'
-
-	testCompileOnly 'org.projectlombok:lombok:1.18.24'
-	testAnnotationProcessor 'org.projectlombok:lombok:1.18.24'
-
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
+	testCompileOnly 'org.projectlombok:lombok:1.18.30'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.30'
 	runtimeOnly 'org.postgresql:postgresql'
-
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
 tasks.named('test') {

@@ -18,8 +18,4 @@ public class Category {
     @GeneratedValue(generatorClass = UUIDStringGenerator.class)
     private String id;
     private String name;
-
-    @Relationship(type = "SUBCATEGORY_OF", direction = Relationship.Direction.INCOMING)
-    @JsonIgnoreProperties("subcategories")
-    private List<Subcategory> subcategories;
 }

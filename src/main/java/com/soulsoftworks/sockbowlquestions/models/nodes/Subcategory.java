@@ -21,12 +21,5 @@ public class Subcategory {
 
     @Relationship(type = "SUBCATEGORY_OF", direction = Relationship.Direction.OUTGOING)
     private Category category;
-
-    @Relationship(type = "SUBCATEGORY_IS", direction = Relationship.Direction.OUTGOING)
-    @JsonIgnoreProperties("subcategories")
-    private List<Bonus> bonuses;
-
-    @Relationship(type = "SUBCATEGORY_IS", direction = Relationship.Direction.OUTGOING)
-    @JsonIgnoreProperties("subcategories")
-    private List<Tossup> tossups;
 }
+   

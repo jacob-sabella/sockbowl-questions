@@ -18,6 +18,6 @@ public class Tossup {
     private String question;
     private String answer;
 
-    @Relationship(type = "SUBCATEGORY_IS", direction = Relationship.Direction.INCOMING)
+    @Relationship(type = "SUBCATEGORY_IS", direction = Relationship.Direction.OUTGOING)
     private Subcategory subcategory;
 }
