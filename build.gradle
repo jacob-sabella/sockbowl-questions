@@ -28,3 +28,16 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+bootBuildImage {
+	createdDate = "now"
+	imageName = "jacob-sabella/${project.name}:${gitBranch()}"
+}
+
+static def gitBranch() {
+	def branch = 'SNAPSHOT'
+	try {
+		branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+	} catch (Exception ignored) {}
+	return branch
+}
