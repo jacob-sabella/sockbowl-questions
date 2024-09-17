@@ -31,7 +31,7 @@ jobs:
       - name: Build Docker Image with Spring Boot
         run: |
           BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
-          ./gradlew bootBuildImage --imageName=ghcr.io/${{ github.repository }}:${BRANCH_NAME}-${{ github.run_number }}
+          ./gradlew bootBuildImage --imageName=ghcr.io/${{ github.repository }}:${BRANCH_NAME}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
@@ -43,7 +43,7 @@ jobs:
       - name: Push Docker Image
         run: |
           BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
-          docker push ghcr.io/${{ github.repository }}:${BRANCH_NAME}-${{ github.run_number }}
+          docker push ghcr.io/${{ github.repository }}:${BRANCH_NAME}
 
   dependency-submission:
     runs-on: ubuntu-latest
