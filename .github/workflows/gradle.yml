@@ -31,6 +31,7 @@ jobs:
       - name: Build Docker Image with Spring Boot
         run: |
           BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
+          chmod +x gradlew
           ./gradlew bootBuildImage --imageName=ghcr.io/${{ github.repository }}:${BRANCH_NAME}
 
       - name: Log in to GitHub Container Registry
