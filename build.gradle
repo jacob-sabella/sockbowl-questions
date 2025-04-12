@@ -4,6 +4,10 @@ plugins {
 	id 'io.spring.dependency-management' version '1.1.6'
 }
 
+ext {
+	springAiVersion = "1.0.0-M6"
+}
+
 group = 'com.soulsoftworks'
 version = '0.0.1-SNAPSHOT'
 sourceCompatibility = '17'
@@ -18,6 +22,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-graphql'
 	implementation 'com.google.code.gson:gson:2.11.0'
+	implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
+	implementation 'org.springframework.ai:spring-ai-neo4j-store-spring-boot-starter'
+	implementation("org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6")
 
 	compileOnly 'org.projectlombok:lombok:1.18.34'
 
@@ -35,6 +42,12 @@ tasks.named('test') {
 bootBuildImage {
 	createdDate = "now"
 	imageName = "jacob-sabella/${project.name}:${gitBranch()}"
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion"
+	}
 }
 
 static def gitBranch() {
