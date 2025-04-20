@@ -1,0 +1,42 @@
+server:
+  port: '${SOCKBOWL_PORT:8080}'
+spring:
+  neo4j:
+    uri: '${SOCKBOWL_NEO4J_URL:bolt://localhost:7687}'
+    authentication:
+      username: '${SOCKBOWL_NEO4J_USER:neo4j}'
+      password: '${SOCKBOWL_NEO4J_PASSWORD:123456789}'
+    security:
+      encrypted: false
+  ai:
+    mcp:
+      client:
+        enabled: true
+        stdio:
+          root-change-notification: true
+          connections:
+            server1:
+              command: /home/jsabella/.local/bin/mcp-neo4j-cypher
+              args:
+                - --db-url=bolt://localhost:7687
+                - --username=neo4j
+                - --password=123456789
+    vectorstore:
+      neo4j:
+        initialize-schema: true
+        embedding-property: n2v
+        database-name: neo4j
+        embedding-dimension: '1536'
+        index-name: custom-index
+        distance-type: cosine
+    openai:
+      api-key: >-
+        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
+      chat:
+        options:
+          model: gpt-4.5-preview
+logging:
+  level:
+    org:
+      hibernate:
+        SQL: DEBUG

@@ -14,6 +14,7 @@ sourceCompatibility = '17'
 
 repositories {
 	mavenCentral()
+
 }
 
 dependencies {
@@ -22,9 +23,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-graphql'
 	implementation 'com.google.code.gson:gson:2.11.0'
-	implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
-	implementation 'org.springframework.ai:spring-ai-neo4j-store-spring-boot-starter'
-	implementation("org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6")
+	implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-neo4j-store-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6'
 
 	compileOnly 'org.projectlombok:lombok:1.18.34'
 
