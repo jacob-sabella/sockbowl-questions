@@ -1,5 +1,8 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
+import com.google.gson.Gson;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.service.QuestionGenerationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,37 +30,16 @@ public class PacketGenerationController {
      *
      * @return ResponseEntity containing the generated packet as text
      */
-    @GetMapping(produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> generatePacket() {
+    @GetMapping(path = "generate", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> generatePacket(String topic, String additionalContext) {
         logger.info("Request received to generate a quizbowl packet");
         try {
-            String generatedPacket = questionGenerationService.generatePacket();
+            Packet generatedPacket = questionGenerationService.generatePacket(topic, additionalContext);
             logger.info("Successfully generated packet");
-            return ResponseEntity.ok(generatedPacket);
+            return ResponseEntity.ok(new Gson().toJson(generatedPacket));
         } catch (Exception e) {
             logger.error("Error generating packet", e);
             return ResponseEntity.internalServerError().body("Error generating packet: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Validates a user-provided quizbowl packet.
-     *
-     * @param packet The packet content to validate
-     * @return ResponseEntity with validation result
-     */
-    @PostMapping("/validate")
-    public ResponseEntity<ValidationResult> validatePacket(@RequestBody String packet) {
-        logger.info("Request received to validate a quizbowl packet");
-        try {
-            boolean isValid = questionGenerationService.validatePacket(packet);
-            ValidationResult result = new ValidationResult(isValid,
-                    isValid ? "Packet is valid and follows quizbowl standards" : "Packet has validation issues");
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("Error validating packet", e);
-            return ResponseEntity.internalServerError()
-                    .body(new ValidationResult(false, "Error during validation: " + e.getMessage()));
         }
     }
 
@@ -66,9 +48,4 @@ public class PacketGenerationController {
         return "packet-generator";
     }
 
-
-    /**
-     * Simple DTO to represent packet validation results.
-     */
-    public record ValidationResult(boolean valid, String message) {}
 }

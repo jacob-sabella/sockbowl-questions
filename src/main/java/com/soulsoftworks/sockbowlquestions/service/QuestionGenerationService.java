@@ -1,120 +1,124 @@
+
 package com.soulsoftworks.sockbowlquestions.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
+import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
+import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.stereotype.Service;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+
+import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class QuestionGenerationService {
-    private static final Logger logger = LoggerFactory.getLogger(QuestionGenerationService.class);
-
     private final ChatClient chatClient;
+    private final AiPrompts aiPrompts;
+    private final PacketRepository packetRepository;
 
-    public QuestionGenerationService(ChatClient chatClient) {
+    public QuestionGenerationService(ChatClient chatClient, AiPrompts aiPrompts, PacketRepository packetRepository) {
         this.chatClient = chatClient;
+        this.aiPrompts = aiPrompts;
+        this.packetRepository = packetRepository;
     }
 
-    public String generatePacket() {
-        logger.info("Starting generation of a full quizbowl packet");
-
-        // Define the prompt for generating a complete packet
-        String prompt = "Generate a complete quizbowl packet with 20 tossup questions " +
-                "covering a diverse range of academic subjects including history, literature, " +
-                "science, fine arts, and social sciences. Each question should follow standard " +
-                "quizbowl format with pyramidal structure.";
-
-        // Use the AI client to generate the packet
-        String generatedPacket = chatClient.prompt()
-                .user(prompt)
-                .call()
-                .content();
-
-        logger.info("Successfully generated a quizbowl packet");
-        return generatedPacket;
+    private record TossupPromptDTO(String question, String answer) {
     }
 
-    public String generateQuestion(String prompt, List<String> existingAnswers) {
-        logger.info("Generating a question based on prompt: {} with {} existing answers to avoid",
-                prompt, existingAnswers.size());
+    public Packet generatePacket(String topic, String additionalContext) throws JsonProcessingException {
 
-        // Create a comprehensive prompt that includes the context
-        StringBuilder enhancedPrompt = new StringBuilder();
-        enhancedPrompt.append("Generate a single pyramidal quizbowl tossup question about: ")
-                .append(prompt)
-                .append("\n\nEnsure the question follows the standard quizbowl format with decreasing difficulty clues.");
+        log.info("=== Starting New Packet Generation ===");
+        log.info("Topic: {}", topic);
+        log.info("Additional Context: {}", additionalContext);
+        log.info("Target number of tossups: 10");
 
-        // Add constraint about avoiding existing answers
-        if (!existingAnswers.isEmpty()) {
-            enhancedPrompt.append("\n\nAvoid using any of these answers, as they already exist in our database: ");
-            enhancedPrompt.append(String.join(", ", existingAnswers));
+        Packet.PacketBuilder packetBuilder = Packet
+                .builder()
+                .name("Generated Packet: %s  - %s".formatted(topic, UUID.randomUUID()));
+
+        List<Tossup> existingTossups = new ArrayList<>();
+
+        for (int i = 1; i <= 5; i++) {
+            log.info("=== Generating Tossup {} of 10 ===", i + 1);
+            log.info("Current topic: {}", topic);
+            log.info("Number of existing tossups to avoid: {}", existingTossups.size());
+
+            Tossup tossup = null;
+            int maxAttempts = 3; // Maximum attempts to get a non-duplicate answer
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                log.info("Attempt {} to generate non-duplicate tossup", attempt);
+                tossup = generateTossup(">" + topic + " question " + i, additionalContext, existingTossups);
+
+                if (existingTossups.isEmpty()) {
+                    break;
+                }
+            }
+
+            existingTossups.add(tossup);
+
+            ContainsTossup containsTossup = ContainsTossup.builder()
+                    .order(i)
+                    .tossup(tossup)
+                    .build();
+
+            packetBuilder.tossup(containsTossup);
         }
 
-        // Use the AI client to generate the question
-        String generatedQuestion = chatClient.prompt()
-                .user(enhancedPrompt.toString())
-                .call()
-                .content();
+        Packet packet = packetBuilder.build();
 
-        logger.info("Successfully generated question for prompt: {}", prompt);
-        return generatedQuestion;
+        packetRepository.save(packet);
+
+        return packet;
     }
 
-    public boolean validatePacket(String packet) {
-        logger.info("Validating quizbowl packet");
+    public Tossup generateTossup(String prompt, String additionalContext, List<Tossup> existingTossups) {
+        log.info("=== Starting Tossup Generation ===");
+        log.info("Base Prompt: {}", prompt);
+        log.info("Additional Context: {}", additionalContext);
+        log.info("Number of existing tossups to avoid: {}", existingTossups.size());
 
-        // Define validation criteria
-        Map<String, Boolean> validationCriteria = new HashMap<>();
-        validationCriteria.put("hasProperFormat", true);
-        validationCriteria.put("hasDiverseTopics", true);
-        validationCriteria.put("hasAppropriateLength", true);
-        validationCriteria.put("hasPyramidalStructure", true);
+        // --- Build Enhanced Prompt using Structured Input ---
+        log.info("Building structured prompt incorporating best practices");
 
-        // Create a prompt for validation
-        String validationPrompt = "Validate the following quizbowl packet. Check for:\n" +
-                "1. Proper formatting (clear distinction between questions)\n" +
-                "2. Diverse topic coverage (multiple academic subjects)\n" +
-                "3. Appropriate length for each question\n" +
-                "4. Pyramidal structure with decreasing difficulty\n\n" +
-                "Packet to validate:\n" + packet;
+        Map<String, Object> promptParams = new HashMap<>();
+        promptParams.put("tossup_number", existingTossups.size() + 1);
+        promptParams.put("tossup_topic", prompt);
+        promptParams.put("user_context", additionalContext);
+        promptParams.put("existing_tossups", existingTossups.stream()
+                .map(tossup -> "DO NOT INCLUDE: " + tossup.getAnswer())
+                .collect(Collectors.joining("\n")));
 
-        // Use the AI client to validate the packet
-        String validationResponse = chatClient.prompt()
-                .user(validationPrompt)
+        SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(aiPrompts.getNaqtWriterPacketGenerationPrompt());
+
+        log.info("Generated structured prompt: {}", systemPromptTemplate.render(promptParams));
+
+        TossupPromptDTO response = chatClient.prompt()
+                .user(systemPromptTemplate.render(promptParams))
                 .call()
-                .content();
+                .entity(TossupPromptDTO.class);
 
-        // Process validation response (in a real implementation, this would parse the AI response)
-        // For now, we'll use a simple check to see if there are major issues
-        assert validationResponse != null;
-        boolean isValid = !validationResponse.toLowerCase().contains("major issue") &&
-                !validationResponse.toLowerCase().contains("invalid format");
+        log.info("Received AI response:");
+        log.info("Question length: {} characters", response.question() != null ? response.question().length() : 0);
+        log.info("Answer length: {} characters", response.answer() != null ? response.answer().length() : 0);
+        log.info("Answer: {}", response.answer());
 
-        logger.info("Packet validation result: {}", isValid);
-        return isValid;
+        // Ensure response is not null before building Tossup
+        Objects.requireNonNull(response, "AI response DTO cannot be null");
+        Objects.requireNonNull(response.question(), "Generated question text cannot be null");
+        Objects.requireNonNull(response.answer(), "Generated answer text cannot be null");
+
+        return Tossup.builder()
+                .question(response.question())
+                .answer(response.answer())
+                .build();
     }
 
-    public String fetchSuggestedQuestions(String topic) {
-        logger.info("Fetching suggested questions for topic: {}", topic);
-
-        // Create a prompt to get question suggestions
-        String suggestionsPrompt = "Suggest 5 potential quizbowl tossup question ideas related to the topic: " +
-                topic + ". For each suggestion, provide a brief description of the question focus and " +
-                "potential answer.";
-
-        // Use the AI client to get suggestions
-        String suggestions = chatClient.prompt()
-                .advisors(advisor -> advisor.param("chat_memory_conversation_id", "suggestions")
-                        .param("chat_memory_response_size", 50))
-                .user(suggestionsPrompt)
-                .call()
-                .content();
-
-        logger.info("Successfully fetched suggested questions for topic: {}", topic);
-        return suggestions;
-    }
 }
