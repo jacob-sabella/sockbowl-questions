@@ -43,9 +43,4 @@ public class PacketGenerationController {
         }
     }
 
-    @GetMapping("/ui")
-    public String packetGeneratorUi() {
-        return "packet-generator";
-    }
-
 }

@@ -28,23 +28,10 @@ spring:
         database-name: neo4j
         index-name: custom-index
         embedding-dimension: 1536
-    openai:
-      api-key: >-
-        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
+    ollama:
       chat:
-        options:
-          model: gpt-4.1-2025-04-14
-          frequency-penalty: 2
-          temperature: 1
-          presence-penalty: 2
-#    ollama:
-#      chat:
-#        enabled: true
-#        model: mistral
-#    ollama:
-#      chat:
-#        enabled: true
-#        model: qwen2.5:32b
+        enabled: true
+        model: qwen2.5:32b
 logging:
   level:
     org:

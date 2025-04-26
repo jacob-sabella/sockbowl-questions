@@ -30,7 +30,7 @@ public class AiConfig {
      * @param tools ToolCallbackProvider for AI tools integration
      * @return Configured ChatClient instance
      */
-    @Bean
+    @Bean(name = "quizBowlQuestionWriterChatClient")
     public ChatClient chatClient(
             ChatClient.Builder chatClientBuilder,
             VectorStore vectorStore,
@@ -57,7 +57,7 @@ public class AiConfig {
 
         // Build and return the configured ChatClient
         return chatClientBuilder
-                .defaultAdvisors(List.of(questionAnswerAdvisor)) // Consider enabling if using vector store for generation context
+                .defaultAdvisors(List.of(questionAnswerAdvisor))
                 .defaultSystem("""
                         **Role:** You are an expert NAQT-style Quizbowl Question Writer. Your expertise lies in crafting high-quality, factually accurate, and stylistically compliant tossup questions for standard high school or collegiate difficulty levels.
 
@@ -79,11 +79,10 @@ public class AiConfig {
                         5.  **Answer Line Format:**
                             *   Start with `ANSWER:` (all caps).
                             *   Provide the most specific, common name of the answer.
-                            *   Use `[` and `]` for alternate acceptable answers, separated by `or`. Example: `[or alternate]`
+                            *   Use `[` and `]` for alternate acceptable answers, separated by `or`. Example: `[alternate or another alternate]`
                             *   Use `(` and `)` for non-essential clarifications or pronunciation guides.
                             *   Use `prompt on [less specific answer]` to guide moderators.
-                            *   Use `do not accept [wrong answer]` or `do not prompt on [related wrong answer]` for clarity.
-                            *   Example: `ANSWER: Albert Einstein [or Albert Hermann Einstein; prompt on Einstein; do not accept or prompt on "Alfred Einstein"]`
+                            *   Use `do not accept [wrong answer]` or `do not prompt on [related wrong answer]` for clarity when appropriate.
                         6.  **Factual Integrity:** Ensure all clues accurately point towards the answer.
 
                         **Process for User Prompts:**
