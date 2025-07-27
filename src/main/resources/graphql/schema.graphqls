@@ -1,0 +1,121 @@
+# src/main/resources/graphql/schema.graphqls
+
+type Query {
+  getAllPackets: [Packet!]!
+  getPacketById(id: ID!): Packet
+  searchPacketsByName(name: String!): [Packet!]!
+}
+
+
+"""
+Event Node
+"""
+type Event {
+  id: ID!
+  location: String
+  name: String
+  year: Int
+  imported: Boolean
+  packets: [UsesPacketAtRound]
+}
+
+"""
+Relationship from Event -> Packet
+"""
+type UsesPacketAtRound {
+  id: ID!
+  round: Int
+  packet: Packet
+}
+
+"""
+Packet Node
+"""
+type Packet {
+  id: ID!
+  name: String
+  difficulty: Difficulty
+  tossups: [ContainsTossup]
+  bonuses: [ContainsBonus]
+}
+
+"""
+Difficulty Node
+"""
+type Difficulty {
+  id: ID!
+  name: String
+}
+
+"""
+Relationship from Packet -> Tossup
+"""
+type ContainsTossup {
+  id: ID!
+  order: Int
+  tossup: Tossup
+}
+
+"""
+Tossup Node
+"""
+type Tossup {
+  id: ID!
+  question: String
+  answer: String
+  subcategory: Subcategory
+}
+
+"""
+Subcategory Node
+"""
+type Subcategory {
+  id: ID!
+  name: String
+  category: Category
+}
+
+"""
+Category Node
+"""
+type Category {
+  id: ID!
+  name: String
+}
+
+"""
+Relationship from Packet -> Bonus
+"""
+type ContainsBonus {
+  id: ID!
+  order: Int
+  bonus: Bonus
+}
+
+"""
+Bonus Node
+"""
+type Bonus {
+  id: ID!
+  preamble: String
+  subcategory: Subcategory
+  bonusParts: [HasBonusPart]
+}
+
+"""
+Relationship from Bonus -> BonusPart
+"""
+type HasBonusPart {
+  id: ID!
+  order: Int
+  bonusPart: BonusPart
+}
+
+"""
+BonusPart Node
+"""
+type BonusPart {
+  id: ID!
+  question: String
+  answer: String
+}

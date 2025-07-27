@@ -1,0 +1,61 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.3.3'
+	id 'io.spring.dependency-management' version '1.1.6'
+}
+
+ext {
+	springAiVersion = "1.0.0-M6"
+}
+
+group = 'com.soulsoftworks'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '17'
+
+repositories {
+	mavenCentral()
+
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter'
+	implementation 'org.springframework.boot:spring-boot-starter-data-neo4j'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-graphql'
+	implementation 'com.google.code.gson:gson:2.11.0'
+	implementation 'org.springframework.ai:spring-ai-ollama-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-neo4j-store-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6'
+	implementation 'com.github.victools:jsonschema-generator:4.38.0'
+
+	compileOnly 'org.projectlombok:lombok:1.18.34'
+
+	annotationProcessor 'org.projectlombok:lombok:1.18.34'
+	testCompileOnly 'org.projectlombok:lombok:1.18.34'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
+	runtimeOnly 'org.postgresql:postgresql'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+bootBuildImage {
+	createdDate = "now"
+	imageName = "jacob-sabella/${project.name}:${gitBranch()}"
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion"
+	}
+}
+
+static def gitBranch() {
+	def branch = 'SNAPSHOT'
+	try {
+		branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+	} catch (Exception ignored) {}
+	return branch
+}

@@ -1,0 +1,26 @@
+server:
+  port: '${SOCKBOWL_PORT:8080}'
+spring:
+  neo4j:
+    uri: '${SOCKBOWL_NEO4J_URL:bolt://localhost:7687}'
+    authentication:
+      username: '${SOCKBOWL_NEO4J_USER:neo4j}'
+      password: '${SOCKBOWL_NEO4J_PASSWORD:123456789}'
+    security:
+      encrypted: false
+    vectorstore:
+      neo4j:
+        initialize-schema: true
+        embedding-property: embedding
+        database-name: neo4j
+        index-name: custom-index
+        embedding-dimension: 1536
+    ollama:
+      chat:
+        enabled: true
+        model: '${SOCKBOWL_AI_LOCAL_MODEL:qwen2.5:32b}'
+logging:
+  level:
+    org:
+      hibernate:
+        SQL: DEBUG
