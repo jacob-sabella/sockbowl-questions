@@ -28,11 +28,11 @@ dependencies {
 	implementation 'org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6'
 	implementation 'com.github.victools:jsonschema-generator:4.38.0'
 
-	compileOnly 'org.projectlombok:lombok:1.18.34'
+	compileOnly 'org.projectlombok:lombok:1.18.38'
 
-	annotationProcessor 'org.projectlombok:lombok:1.18.34'
-	testCompileOnly 'org.projectlombok:lombok:1.18.34'
-	testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
+	annotationProcessor 'org.projectlombok:lombok:1.18.38'
+	testCompileOnly 'org.projectlombok:lombok:1.18.38'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.38'
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
