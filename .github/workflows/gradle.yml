@@ -3,39 +3,91 @@ name: Java CI with Gradle and Docker
 on:
   push:
     branches: [ "main" ]
+    tags:
+      - "v*"
   pull_request:
     branches: [ "main" ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v2
+      - name: Set CI version from tag (if tagged)
+        id: versioning
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            # strip leading 'v' for semantic versions like v1.2.3
+            CLEAN="${TAG#v}"
+            echo "version=${CLEAN}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Show effective version
+        run: |
+          if [ -n "${{ steps.versioning.outputs.version }}" ]; then
+            echo "Using tag version: ${{ steps.versioning.outputs.version }}"
+          else
+            echo "Using project.version from build.gradle"
+          fi
+
+      - name: Build models jars
+        env:
+          VERSION: ${{ steps.versioning.outputs.version }}
+        run: |
+          ./gradlew -S \
+            ${VERSION:+-Pversion=${VERSION}} \
+            clean modelsJar modelsSourcesJar
+
+      - name: Publish models to GitHub Packages (Maven)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ steps.versioning.outputs.version }}
+        run: |
+          ./gradlew -S \
+            ${VERSION:+-Pversion=${VERSION}} \
+            publishModelsPublicationToGitHubPackagesRepository
+
+      - name: Upload models jars as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: models-jars
+          path: |
+            build/libs/sockbowlquestions-models-*.jar
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Docker Image with Spring Boot
         run: |
-          BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
+          BRANCH_NAME="${GITHUB_REF##*/}"
           chmod +x gradlew
           ./gradlew bootBuildImage --imageName=ghcr.io/${{ github.repository }}:${BRANCH_NAME}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -43,7 +95,7 @@ jobs:
 
       - name: Push Docker Image
         run: |
-          BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
+          BRANCH_NAME="${GITHUB_REF##*/}"
           docker push ghcr.io/${{ github.repository }}:${BRANCH_NAME}
 
   dependency-submission:
@@ -53,13 +105,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
-      # Generates and submits a dependency graph, enabling Dependabot Alerts for all project dependencies.
-      # See: https://github.com/gradle/actions/blob/main/dependency-submission/README.md
       - name: Generate and submit dependency graph
         uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
