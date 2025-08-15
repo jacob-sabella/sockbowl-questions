@@ -108,27 +108,48 @@ dependencyManagement {
 	}
 }
 
-static def gitBranchVersion(def project) {
-	def branch
-	try {
-		// First try GitHub Actions environment variable
-		branch = System.getenv('GITHUB_REF_NAME')
-		if (!branch) {
-			// Fallback to local git command
-			branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+static def gitBranchVersion(def project = null) {
+	// 1) Prefer CI-provided names
+	String name = System.getenv('GITHUB_REF_NAME')    // e.g. "main" or "feature/x"
+	if (!name || name.trim().isEmpty()) {
+		name = System.getenv('GITHUB_HEAD_REF')       // e.g. "feature/x" on pull_request
+	}
+	if (!name || name.trim().isEmpty()) {
+		String ref = System.getenv('GITHUB_REF')      // e.g. "refs/heads/main" or "refs/tags/v1.2.3"
+		if (ref) {
+			// strip common prefixes
+			name = ref.replaceFirst('^refs/heads/', '')
+					.replaceFirst('^refs/tags/', '')
+					.replaceFirst('^refs/pull/', 'PR-') // "PR-123/merge" → handle below
 		}
+	}
 
-		if (branch == 'main' || branch == 'master') {
-			return project.version
-		} else if (branch.startsWith('release/')) {
-			return branch.substring(8) + '-RC'
-		} else if (branch.startsWith('feature/')) {
-			return branch.substring(8) + '-SNAPSHOT'
-		} else {
-			return branch + '-UNKNOWN'
-		}
-	} catch (Exception e) {
-		println "Failed to detect git branch: ${e.message}"
-		return 'UNKNOWN'
+	// 2) Fallback to git only if CI vars are missing
+	if (!name || name.trim().isEmpty()) {
+		try {
+			name = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+		} catch (ignored) { /* keep null */ }
+	}
+
+	// 3) Normalize weird PR refs like "PR-123/merge"
+	if (name?.startsWith('PR-')) {
+		name = name.replaceAll('/.*$', '') // "PR-123"
+	}
+
+	// 4) Handle detached situations where git returns "HEAD"
+	if (!name || name == 'HEAD') {
+		return (project?.version ?: '0.0.0') + '-SNAPSHOT'
+	}
+
+	// 5) Map to your scheme
+	if (name == 'main' || name == 'master') {
+		return project?.version ?: '0.0.1-SNAPSHOT'
+	} else if (name.startsWith('release/')) {
+		return name.substring('release/'.length()) + '-RC'
+	} else if (name.startsWith('feature/')) {
+		return name.substring('feature/'.length()) + '-SNAPSHOT'
+	} else {
+		return name + '-SNAPSHOT'
 	}
 }
+
