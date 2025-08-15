@@ -66,7 +66,7 @@ publishing {
 		models(MavenPublication) {
 			groupId = project.group
 			artifactId = 'sockbowlquestions-models'
-			version = project.version
+			version = gitBranchVersion(project)
 
 			artifact tasks.named('modelsJar')
 			artifact tasks.named('modelsSourcesJar')
@@ -99,7 +99,7 @@ publishing {
 
 bootBuildImage {
 	createdDate = "now"
-	imageName = "jacob-sabella/${project.name}:${gitBranch()}"
+	imageName = "jacob-sabella/${project.name}:${gitBranchVersion()}"
 }
 
 dependencyManagement {
@@ -108,10 +108,20 @@ dependencyManagement {
 	}
 }
 
-static def gitBranch() {
-	def branch = 'SNAPSHOT'
+static def gitBranchVersion(def project) {
+	def branch
 	try {
 		branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
-	} catch (Exception ignored) {}
-	return branch
+		if (branch == 'main' || branch == 'master') {
+			return project.version
+		} else if (branch.startsWith('release/')) {
+			return branch.substring(8) + '-RC'
+		} else if (branch.startsWith('feature/')) {
+			return branch.substring(8) + '-SNAPSHOT'
+		} else {
+			return branch + '-UNKNOWN'
+		}
+	} catch (Exception ignored) {
+		return 'UNKNOWN'
+	}
 }
