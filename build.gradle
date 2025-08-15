@@ -5,18 +5,17 @@ plugins {
 	id 'maven-publish'
 }
 
-ext {
-	springAiVersion = "1.0.0-M6"
-}
+ext { springAiVersion = "1.0.0-M6" }
 
 group = 'com.soulsoftworks'
-version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '17'
+version = resolveVersion()
 
-repositories {
-	mavenCentral()
-
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
 }
+
+repositories { mavenCentral() }
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter'
@@ -30,25 +29,23 @@ dependencies {
 	implementation 'com.github.victools:jsonschema-generator:4.38.0'
 
 	compileOnly 'org.projectlombok:lombok:1.18.34'
-
 	annotationProcessor 'org.projectlombok:lombok:1.18.34'
 	testCompileOnly 'org.projectlombok:lombok:1.18.34'
 	testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
+
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
-tasks.named('test') {
-	useJUnitPlatform()
-}
+tasks.named('test') { useJUnitPlatform() }
 
+/* -------------------------- Models-only artifacts -------------------------- */
 tasks.register('modelsJar', Jar) {
 	group = 'build'
 	description = 'Jar containing only com.soulsoftworks.sockbowlquestions.models.* classes'
 	from sourceSets.main.output
 	include 'com/soulsoftworks/sockbowlquestions/models/**'
 	archiveBaseName = 'sockbowlquestions-models'
-	// use the project version; no classifier so it looks like a normal library
 }
 
 tasks.register('modelsSourcesJar', Jar) {
@@ -60,68 +57,91 @@ tasks.register('modelsSourcesJar', Jar) {
 	archiveClassifier = 'sources'
 }
 
+/* ------------------------------ Publishing --------------------------------- */
 publishing {
 	publications {
-		// A pure-models publication (not the whole app)
-		models(MavenPublication) {
-			groupId = project.group
-			artifactId = 'sockbowlquestions-models'
-			version = gitBranchVersion(project)
+		register("models", MavenPublication) {
+			groupId = project.group as String
+			artifactId = "sockbowlquestions-models"
+			version = project.version as String
 
-			artifact tasks.named('modelsJar')
-			artifact tasks.named('modelsSourcesJar')
+			artifact tasks.named("modelsJar").get()
+			artifact tasks.named("modelsSourcesJar").get()
 
 			pom {
-				name = 'Sockbowl Questions Models'
-				description = 'Models under com.soulsoftworks.sockbowlquestions.models'
-				url = 'https://github.com/OWNER/REPO' // <- optional
+				name = "Sockbowl Questions Models"
+				description = "Models under com.soulsoftworks.sockbowlquestions.models"
+				url = "https://github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'}"
 				licenses {
 					license {
-						name = 'Apache-2.0'
-						url = 'https://www.apache.org/licenses/LICENSE-2.0'
+						name = "Apache License, Version 2.0"
+						url = "https://www.apache.org/licenses/LICENSE-2.0"
+						distribution = "repo"
 					}
 				}
+				scm {
+					def repo = System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'
+					url = "https://github.com/${repo}"
+					connection = "scm:git:https://github.com/${repo}.git"
+					developerConnection = "scm:git:ssh://git@github.com/${repo}.git"
+				}
+				developers { developer { id = "jsabella"; name = "Jacob Sabella" } }
 			}
 		}
 	}
 	repositories {
-		// Publish to GitHub Packages (Maven)
+		// GitHub Packages (Maven)
 		maven {
 			name = "GitHubPackages"
 			url = uri("https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'}")
 			credentials {
-				username = System.getenv("GITHUB_ACTOR") ?: (project.findProperty("gpr.user") ?: "")
-				password = System.getenv("GITHUB_TOKEN") ?: (project.findProperty("gpr.key") ?: "")
+				username = (System.getenv("GITHUB_ACTOR") ?: (project.findProperty("gpr.user") ?: "")) as String
+				password = (System.getenv("GITHUB_TOKEN") ?: (project.findProperty("gpr.key") ?: "")) as String
 			}
 		}
 	}
 }
 
+/* ----------------------------- Spring Boot image --------------------------- */
 bootBuildImage {
 	createdDate = "now"
-	imageName = "jacob-sabella/${project.name}:${gitBranchVersion()}"
+	def repo = (System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO')
+	imageName = "ghcr.io/${repo}:${project.version}"
 }
 
+/* ---------------------------- Dependency management ------------------------ */
 dependencyManagement {
-	imports {
-		mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion"
-	}
+	imports { mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion" }
 }
 
-static def gitBranchVersion(def project) {
-	def branch
+/* ------------------------------- Utilities -------------------------------- */
+tasks.register('printVersion') {
+	group = 'help'
+	description = 'Prints the current project version'
+	doLast { println project.version }
+}
+
+static String resolveVersion() {
+	String gitRef = System.getenv('GITHUB_REF')
+	if (gitRef?.startsWith('refs/tags/')) {
+		String tag = gitRef.substring('refs/tags/'.length())
+		return tag.startsWith('v') ? tag.substring(1) : tag
+	}
+	// Non-tag build: use latest tag as base -> X.Y.Z-SNAPSHOT; fallback to 0.0.0-SNAPSHOT
+	String latestTag = execAndRead("git describe --tags --abbrev=0")
+	if (latestTag) {
+		String base = latestTag.startsWith('v') ? latestTag.substring(1) : latestTag
+		return base + "-SNAPSHOT"
+	}
+	return "0.0.0-SNAPSHOT"
+}
+
+static String execAndRead(String cmd) {
 	try {
-		branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
-		if (branch == 'main' || branch == 'master') {
-			return project.version
-		} else if (branch.startsWith('release/')) {
-			return branch.substring(8) + '-RC'
-		} else if (branch.startsWith('feature/')) {
-			return branch.substring(8) + '-SNAPSHOT'
-		} else {
-			return branch + '-UNKNOWN'
-		}
+		def p = cmd.execute()
+		p.waitFor()
+		return p.exitValue() == 0 ? p.text.trim() : null
 	} catch (Exception ignored) {
-		return 'UNKNOWN'
+		return null
 	}
 }
