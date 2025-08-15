@@ -2,49 +2,134 @@ name: Java CI with Gradle and Docker
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - "main"
+      - "feature/**"
+      - "features/**"
+      - "bugfix/**"
+      - "hotfix/**"
+    tags:
+      - "v*"
   pull_request:
     branches: [ "main" ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v2
+      - name: Compute branch/tag info
+        id: ci_meta
+        shell: bash
+        run: |
+          # GITHUB_REF_NAME is e.g. main, feature/x, or the tag name (if tag)
+          REF_NAME="${GITHUB_REF_NAME}"
+
+          # Safe branch slug for Docker tag & optional version suffix
+          BRANCH_SLUG="$(echo "${REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')"
+
+          echo "branch_slug=${BRANCH_SLUG}" >> "$GITHUB_OUTPUT"
+
+          # If this is a tag, use it as the version (strip leading v)
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Show effective version/tag
+        run: |
+          if [ "${{ steps.ci_meta.outputs.is_tag }}" = "true" ]; then
+            echo "Using tag version: ${{ steps.ci_meta.outputs.version }}"
+          else
+            echo "No tag detected; will use project.version (and branch suffix for non-main)."
+          fi
+
+      # Decide the Gradle version property:
+      # - If tag: use tag version
+      # - Else if branch != main: append "-<branch>-SNAPSHOT" to avoid collisions across branches
+      - name: Decide Gradle -Pversion
+        id: version_arg
+        shell: bash
+        run: |
+          if [ "${{ steps.ci_meta.outputs.is_tag }}" = "true" ]; then
+            echo "arg=-Pversion=${{ steps.ci_meta.outputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            if [ "${GITHUB_REF_NAME}" != "main" ]; then
+              echo "arg=-Pversion=${{ github.event.repository.default_branch != 'main' && '0.0.1' || '' }}-${{ steps.ci_meta.outputs.branch_slug }}-SNAPSHOT" >> "$GITHUB_OUTPUT"
+            else
+              echo "arg=" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Build models jars
+        env:
+          GPR_VERSION_ARG: ${{ steps.version_arg.outputs.arg }}
+        run: |
+          chmod +x gradlew
+          ./gradlew -S ${GPR_VERSION_ARG} clean modelsJar modelsSourcesJar
+
+      - name: Publish models to GitHub Packages (Maven)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GPR_VERSION_ARG: ${{ steps.version_arg.outputs.arg }}
+        run: |
+          chmod +x gradlew
+          ./gradlew -S ${GPR_VERSION_ARG} publishModelsPublicationToGitHubPackagesRepository
+
+      - name: Upload models jars as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: models-jars
+          path: |
+            build/libs/sockbowlquestions-models-*.jar
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Docker Image with Spring Boot
+        env:
+          BRANCH_SLUG: ${{ steps.ci_meta.outputs.branch_slug }}
         run: |
-          BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
           chmod +x gradlew
-          ./gradlew bootBuildImage --imageName=ghcr.io/${{ github.repository }}:${BRANCH_NAME}
+          ./gradlew bootBuildImage --imageName=ghcr.io/${{ github.repository }}:${BRANCH_SLUG}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push Docker Image
+        env:
+          BRANCH_SLUG: ${{ steps.ci_meta.outputs.branch_slug }}
         run: |
-          BRANCH_NAME=$(echo "${GITHUB_REF##*/}")
-          docker push ghcr.io/${{ github.repository }}:${BRANCH_NAME}
+          docker push ghcr.io/${{ github.repository }}:${BRANCH_SLUG}
 
   dependency-submission:
     runs-on: ubuntu-latest
@@ -53,13 +138,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
-      # Generates and submits a dependency graph, enabling Dependabot Alerts for all project dependencies.
-      # See: https://github.com/gradle/actions/blob/main/dependency-submission/README.md
       - name: Generate and submit dependency graph
         uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
