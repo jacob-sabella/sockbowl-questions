@@ -111,7 +111,13 @@ dependencyManagement {
 static def gitBranchVersion(def project) {
 	def branch
 	try {
-		branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+		// First try GitHub Actions environment variable
+		branch = System.getenv('GITHUB_REF_NAME')
+		if (!branch) {
+			// Fallback to local git command
+			branch = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
+		}
+
 		if (branch == 'main' || branch == 'master') {
 			return project.version
 		} else if (branch.startsWith('release/')) {
@@ -121,7 +127,8 @@ static def gitBranchVersion(def project) {
 		} else {
 			return branch + '-UNKNOWN'
 		}
-	} catch (Exception ignored) {
+	} catch (Exception e) {
+		println "Failed to detect git branch: ${e.message}"
 		return 'UNKNOWN'
 	}
 }
