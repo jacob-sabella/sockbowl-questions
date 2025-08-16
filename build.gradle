@@ -127,40 +127,32 @@ dependencyManagement {
 }
 
 static def gitBranchVersion(def project = null) {
-
-	// 1) Prefer CI-provided names
-	String name = System.getenv('GITHUB_REF_NAME')    // e.g. "main" or "feature/x"
+	String name = System.getenv('CI_BRANCH')
 	if (!name || name.trim().isEmpty()) {
-		name = System.getenv('GITHUB_HEAD_REF')       // e.g. "feature/x" on pull_request
+		name = System.getenv('GITHUB_REF_NAME')
 	}
 	if (!name || name.trim().isEmpty()) {
-		String ref = System.getenv('GITHUB_REF')      // e.g. "refs/heads/main" or "refs/tags/v1.2.3"
+		name = System.getenv('GITHUB_HEAD_REF')
+	}
+	if (!name || name.trim().isEmpty()) {
+		String ref = System.getenv('GITHUB_REF')
 		if (ref) {
-			// strip common prefixes
 			name = ref.replaceFirst('^refs/heads/', '')
 					.replaceFirst('^refs/tags/', '')
-					.replaceFirst('^refs/pull/', 'PR-') // "PR-123/merge" → handle below
+					.replaceFirst('^refs/pull/', 'PR-')
 		}
 	}
-
-	// 2) Fallback to git only if CI vars are missing
 	if (!name || name.trim().isEmpty()) {
 		try {
 			name = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
-		} catch (ignored) { /* keep null */ }
+		} catch (ignored) {}
 	}
-
-	// 3) Normalize weird PR refs like "PR-123/merge"
 	if (name?.startsWith('PR-')) {
-		name = name.replaceAll('/.*$', '') // "PR-123"
+		name = name.replaceAll('/.*$', '')
 	}
-
-	// 4) Handle detached situations where git returns "HEAD"
 	if (!name || name == 'HEAD') {
 		return (project?.version ?: '0.0.0') + '-SNAPSHOT'
 	}
-
-	// 5) Map to your scheme
 	if (name == 'main' || name == 'master') {
 		return project?.version ?: '0.0.1-SNAPSHOT'
 	} else if (name.startsWith('release/')) {
@@ -171,4 +163,5 @@ static def gitBranchVersion(def project = null) {
 		return name + '-SNAPSHOT'
 	}
 }
+
 
