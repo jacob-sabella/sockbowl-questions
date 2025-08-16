@@ -31,6 +31,13 @@ jobs:
           fetch-depth: '0'
           ref: ${{ github.head_ref || github.ref_name }}
 
+      - name: Set branch env
+        run: echo "CI_BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" >> $GITHUB_ENV
+        shell: bash
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -44,25 +51,18 @@ jobs:
       - name: Compute branch/tag info
         id: ci_meta
         shell: bash
-        env:
-          REF_NAME: ${{ github.head_ref || github.ref_name }}
-          REF_FULL: ${{ github.ref }}
         run: |
-          # Fallback logic for detached HEAD
-          if [[ -z "$REF_NAME" || "$REF_NAME" == "HEAD" ]]; then
-            REF_NAME="$(git branch --show-current || true)"
-          fi
-          if [[ -z "$REF_NAME" || "$REF_NAME" == "HEAD" ]]; then
-            REF_NAME="${REF_FULL#refs/heads/}"
-          fi
+          # GITHUB_REF_NAME is e.g. main, feature/x, or the tag name (if tag)
+          REF_NAME="${GITHUB_REF_NAME}"
 
-          BRANCH_SLUG="$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')"
+          # Safe branch slug for Docker tag & optional version suffix
+          BRANCH_SLUG="$(echo "${REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')"
 
-          echo "branch_name=$REF_NAME" >> "$GITHUB_OUTPUT"
-          echo "branch_slug=$BRANCH_SLUG" >> "$GITHUB_OUTPUT"
+          echo "branch_slug=${BRANCH_SLUG}" >> "$GITHUB_OUTPUT"
 
-          if [[ "$REF_FULL" == refs/tags/* ]]; then
-            TAG="${REF_FULL#refs/tags/}"
+          # If this is a tag, use it as the version (strip leading v)
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
             echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
             echo "is_tag=true" >> "$GITHUB_OUTPUT"
           else
@@ -71,13 +71,15 @@ jobs:
 
       - name: Show effective version/tag
         run: |
-          echo "Branch: ${{ steps.ci_meta.outputs.branch_name }}"
           if [ "${{ steps.ci_meta.outputs.is_tag }}" = "true" ]; then
             echo "Using tag version: ${{ steps.ci_meta.outputs.version }}"
           else
             echo "No tag detected; will use project.version (and branch suffix for non-main)."
           fi
 
+      # Decide the Gradle version property:
+      # - If tag: use tag version
+      # - Else if branch != main: append "-<branch>-SNAPSHOT" to avoid collisions across branches
       - name: Decide Gradle -Pversion
         id: version_arg
         shell: bash
@@ -85,8 +87,8 @@ jobs:
           if [ "${{ steps.ci_meta.outputs.is_tag }}" = "true" ]; then
             echo "arg=-Pversion=${{ steps.ci_meta.outputs.version }}" >> "$GITHUB_OUTPUT"
           else
-            if [ "${{ steps.ci_meta.outputs.branch_name }}" != "main" ]; then
-              echo "arg=-Pversion=0.0.1-${{ steps.ci_meta.outputs.branch_slug }}-SNAPSHOT" >> "$GITHUB_OUTPUT"
+            if [ "${GITHUB_REF_NAME}" != "main" ]; then
+              echo "arg=-Pversion=${{ github.event.repository.default_branch != 'main' && '0.0.1' || '' }}-${{ steps.ci_meta.outputs.branch_slug }}-SNAPSHOT" >> "$GITHUB_OUTPUT"
             else
               echo "arg=" >> "$GITHUB_OUTPUT"
             fi
@@ -155,4 +157,4 @@ jobs:
           cache: 'gradle'
 
       - name: Generate and submit dependency graph
-        uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582
+        uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
