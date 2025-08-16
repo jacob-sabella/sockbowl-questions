@@ -62,40 +62,58 @@ tasks.register('modelsSourcesJar', Jar) {
 
 publishing {
 	publications {
-		// A pure-models publication (not the whole app)
-		models(MavenPublication) {
-			groupId = project.group
-			artifactId = 'sockbowlquestions-models'
-			version = gitBranchVersion(project)
+		// Use register/create with explicit type; keep it isolated from your app publication
+		register("models", MavenPublication) {
+			groupId = project.group as String
+			artifactId = "sockbowlquestions-models"
+			version = gitBranchVersion(project) as String
 
-			artifact tasks.named('modelsJar')
-			artifact tasks.named('modelsSourcesJar')
+			// Publish your custom JARs (TaskProvider#get is fine in Groovy; explicit here for clarity)
+			artifact tasks.named("modelsJar").get()
+			artifact tasks.named("modelsSourcesJar").get()
 
 			pom {
-				name = 'Sockbowl Questions Models'
-				description = 'Models under com.soulsoftworks.sockbowlquestions.models'
-				url = 'https://github.com/OWNER/REPO' // <- optional
+				name = "Sockbowl Questions Models"
+				description = "Models under com.soulsoftworks.sockbowlquestions.models"
+				url = "https://github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'}"
+
 				licenses {
 					license {
-						name = 'Apache-2.0'
-						url = 'https://www.apache.org/licenses/LICENSE-2.0'
+						name = "Apache License, Version 2.0"
+						url = "https://www.apache.org/licenses/LICENSE-2.0"
+						distribution = "repo"
+					}
+				}
+				// (optional but nice) Fill these if you plan to sync elsewhere later
+				scm {
+					def repo = System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'
+					url = "https://github.com/${repo}"
+					connection = "scm:git:https://github.com/${repo}.git"
+					developerConnection = "scm:git:ssh://git@github.com/${repo}.git"
+				}
+				developers {
+					developer {
+						id = "jsabella"
+						name = "Jacob Sabella"
 					}
 				}
 			}
 		}
 	}
+
 	repositories {
-		// Publish to GitHub Packages (Maven)
+		// GitHub Packages (Maven)
 		maven {
 			name = "GitHubPackages"
 			url = uri("https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'}")
 			credentials {
-				username = System.getenv("GITHUB_ACTOR") ?: (project.findProperty("gpr.user") ?: "")
-				password = System.getenv("GITHUB_TOKEN") ?: (project.findProperty("gpr.key") ?: "")
+				username = (System.getenv("GITHUB_ACTOR") ?: (project.findProperty("gpr.user") ?: "")) as String
+				password = (System.getenv("GITHUB_TOKEN") ?: (project.findProperty("gpr.key") ?: "")) as String
 			}
 		}
 	}
 }
+
 
 bootBuildImage {
 	createdDate = "now"
