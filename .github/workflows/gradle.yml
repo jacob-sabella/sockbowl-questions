@@ -48,68 +48,22 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Compute branch/tag info
-        id: ci_meta
-        shell: bash
-        run: |
-          # GITHUB_REF_NAME is e.g. main, feature/x, or the tag name (if tag)
-          REF_NAME="${GITHUB_REF_NAME}"
-
-          # Safe branch slug for Docker tag & optional version suffix
-          BRANCH_SLUG="$(echo "${REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')"
-
-          echo "branch_slug=${BRANCH_SLUG}" >> "$GITHUB_OUTPUT"
-
-          # If this is a tag, use it as the version (strip leading v)
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-            echo "is_tag=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_tag=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Show effective version/tag
-        run: |
-          if [ "${{ steps.ci_meta.outputs.is_tag }}" = "true" ]; then
-            echo "Using tag version: ${{ steps.ci_meta.outputs.version }}"
-          else
-            echo "No tag detected; will use project.version (and branch suffix for non-main)."
-          fi
-
-      # Decide the Gradle version property:
-      # - If tag: use tag version
-      # - Else if branch != main: append "-<branch>-SNAPSHOT" to avoid collisions across branches
-      - name: Decide Gradle -Pversion
-        id: version_arg
-        shell: bash
-        run: |
-          if [ "${{ steps.ci_meta.outputs.is_tag }}" = "true" ]; then
-            echo "arg=-Pversion=${{ steps.ci_meta.outputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            if [ "${GITHUB_REF_NAME}" != "main" ]; then
-              echo "arg=-Pversion=${{ github.event.repository.default_branch != 'main' && '0.0.1' || '' }}-${{ steps.ci_meta.outputs.branch_slug }}-SNAPSHOT" >> "$GITHUB_OUTPUT"
-            else
-              echo "arg=" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
       - name: Build models jars
         env:
-          GPR_VERSION_ARG: ${{ steps.version_arg.outputs.arg }}
+            BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           chmod +x gradlew
-          ./gradlew -S ${GPR_VERSION_ARG} clean modelsJar modelsSourcesJar
+          ./gradlew -S clean modelsJar modelsSourcesJar
 
       - name: Publish models to GitHub Packages (Maven)
         env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GPR_VERSION_ARG: ${{ steps.version_arg.outputs.arg }}
         run: |
           chmod +x gradlew
-          ./gradlew -S ${GPR_VERSION_ARG} publishModelsPublicationToGitHubPackagesRepository
+          ./gradlew publishModelsPublicationToGitHubPackagesRepository
 
       - name: Upload models jars as workflow artifacts
         uses: actions/upload-artifact@v4

@@ -127,26 +127,8 @@ dependencyManagement {
 }
 
 static def gitBranchVersion(def project = null) {
-	String name = System.getenv('CI_BRANCH')
-	if (!name || name.trim().isEmpty()) {
-		name = System.getenv('GITHUB_REF_NAME')
-	}
-	if (!name || name.trim().isEmpty()) {
-		name = System.getenv('GITHUB_HEAD_REF')
-	}
-	if (!name || name.trim().isEmpty()) {
-		String ref = System.getenv('GITHUB_REF')
-		if (ref) {
-			name = ref.replaceFirst('^refs/heads/', '')
-					.replaceFirst('^refs/tags/', '')
-					.replaceFirst('^refs/pull/', 'PR-')
-		}
-	}
-	if (!name || name.trim().isEmpty()) {
-		try {
-			name = 'git rev-parse --abbrev-ref HEAD'.execute().text.trim()
-		} catch (ignored) {}
-	}
+	String name = System.getenv('BRANCH_NAME')
+	println(name)
 	if (name?.startsWith('PR-')) {
 		name = name.replaceAll('/.*$', '')
 	}
