@@ -109,6 +109,7 @@ dependencyManagement {
 }
 
 static def gitBranchVersion(def project = null) {
+
 	// 1) Prefer CI-provided names
 	String name = System.getenv('GITHUB_REF_NAME')    // e.g. "main" or "feature/x"
 	if (!name || name.trim().isEmpty()) {
