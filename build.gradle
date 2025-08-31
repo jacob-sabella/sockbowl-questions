@@ -122,18 +122,52 @@ tasks.register('printVersion') {
 }
 
 static String resolveVersion() {
-	String gitRef = System.getenv('GITHUB_REF')
-	if (gitRef?.startsWith('refs/tags/')) {
-		String tag = gitRef.substring('refs/tags/'.length())
-		return tag.startsWith('v') ? tag.substring(1) : tag
+	// GitHub Actions refs look like:
+	//  - refs/heads/feature/foo        (branch)
+	//  - refs/tags/v1.2.3              (tag)
+	//  - PRs: GITHUB_HEAD_REF is the source branch name
+	String gitRef      = System.getenv('GITHUB_REF')
+	String refName     = System.getenv('GITHUB_REF_NAME')   // branch or tag name for the current ref
+	String headRef     = System.getenv('GITHUB_HEAD_REF')   // PR source branch
+	String branchName  = null
+	String releasePrefix = System.getenv('RELEASE_BRANCH_PREFIX') ?: 'release/'
+
+	boolean isTagBuild    = (gitRef != null && gitRef.startsWith('refs/tags/'))
+	boolean isBranchBuild = (gitRef != null && gitRef.startsWith('refs/heads/'))
+
+	if (isTagBuild) {
+		// vX.Y.Z -> X.Y.Z ; X.Y.Z -> X.Y.Z
+		return stripLeadingV(refName)
 	}
-	// Non-tag build: use latest tag as base -> X.Y.Z-SNAPSHOT; fallback to 0.0.0-SNAPSHOT
-	String latestTag = execAndRead("git describe --tags --abbrev=0")
-	if (latestTag) {
-		String base = latestTag.startsWith('v') ? latestTag.substring(1) : latestTag
-		return base + "-SNAPSHOT"
+
+	// Determine branch name (CI or local)
+	if (isBranchBuild) {
+		branchName = refName
+	} else if (headRef) {
+		branchName = headRef
+	} else {
+		branchName = execAndRead("git rev-parse --abbrev-ref HEAD")
 	}
-	return "0.0.0-SNAPSHOT"
+	if (!branchName) branchName = "detached"
+
+	if (branchName.startsWith(releasePrefix)) {
+		// release/0.0.2 -> 0.0.2
+		String ver = branchName.substring(releasePrefix.length())
+		return ver ?: "0.0.0"
+	}
+
+	// Any other branch: just the sanitized branch name
+	return sanitizeBranch(branchName)
+}
+
+static String stripLeadingV(String tag) {
+	if (tag == null) return "0.0.0"
+	return tag.startsWith("v") ? tag.substring(1) : tag
+}
+
+static String sanitizeBranch(String name) {
+	// Lowercase; keep [a-z0-9._-]; convert others (including '/') to '-'
+	return (name ?: "dev").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "-")
 }
 
 static String execAndRead(String cmd) {
