@@ -1,11 +1,47 @@
 server:
-  port: '${SOCKBOWL_PORT:8080}'
+  port: "${SOCKBOWL_PORT:7009}"
+
+sockbowl:
+  ai:
+    provider: "${SOCKBOWL_AI_PROVIDER:openai}" # Options: ollama, openai
+    packetgen:
+      question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
+      strategy: "${SOCKBOWL_QUESTION_STRATEGY:web-search}" # Options: default, web-search (uses Browser MCP)
+      candidate-multiplier: "${SOCKBOWL_CANDIDATE_MULTIPLIER:3}" # Generate X times more candidates than needed for selection
+
 spring:
+  ai:
+    openai:
+      api-key: "${OPENAI_API_KEY:sk-openai-key}"
+      chat:
+        enabled: true
+        options:
+          model: gpt-5.1-2025-11-13 # or gpt-4o-mini for faster/cheaper, gpt-4-turbo for previous generation
+          temperature: 1
+      embedding:
+        enabled: false # Using Ollama for embeddings to save costs
+    ollama:
+      chat:
+        enabled: false # Using OpenAI for chat
+        model: "deepseek-r1:70b"
+      embedding:
+        enabled: true # Keep using Ollama for embeddings (1024 dimensions)
+        options:
+          model: "mxbai-embed-large" # 1024 dimensions - matches existing Neo4j index
+    mcp:
+      client:
+        enabled: true
+        servers:
+          browser:
+            command: npx
+            args:
+              - "-y"
+              - "@browsermcp/mcp-server-browser"
   neo4j:
-    uri: '${SOCKBOWL_NEO4J_URL:bolt://localhost:7687}'
+    uri: "${SOCKBOWL_NEO4J_URL:bolt://localhost:7687}"
     authentication:
-      username: '${SOCKBOWL_NEO4J_USER:neo4j}'
-      password: '${SOCKBOWL_NEO4J_PASSWORD:123456789}'
+      username: "${SOCKBOWL_NEO4J_USER:neo4j}"
+      password: "${SOCKBOWL_NEO4J_PASSWORD:123456789}"
     security:
       encrypted: false
     vectorstore:
@@ -14,11 +50,7 @@ spring:
         embedding-property: embedding
         database-name: neo4j
         index-name: custom-index
-        embedding-dimension: 1536
-    ollama:
-      chat:
-        enabled: true
-        model: '${SOCKBOWL_AI_LOCAL_MODEL:qwen2.5:32b}'
+        embedding-dimension: 1024 # Ollama nomic-embed-text dimensions
 logging:
   level:
     org:

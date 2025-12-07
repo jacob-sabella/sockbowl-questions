@@ -2,123 +2,95 @@
 package com.soulsoftworks.sockbowlquestions.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
-import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
-import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import com.soulsoftworks.sockbowlquestions.service.strategy.QuestionGenerationStrategy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.prompt.SystemPromptTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
-import java.util.stream.Collectors;
-
+/**
+ * Main service for question generation.
+ * Delegates to different strategies based on configuration.
+ */
 @Service
 @Slf4j
 public class QuestionGenerationService {
-    private final ChatClient chatClient;
-    private final AiPrompts aiPrompts;
-    private final PacketRepository packetRepository;
 
-    public QuestionGenerationService(ChatClient chatClient, AiPrompts aiPrompts, PacketRepository packetRepository) {
-        this.chatClient = chatClient;
-        this.aiPrompts = aiPrompts;
-        this.packetRepository = packetRepository;
+    private final Map<String, QuestionGenerationStrategy> strategies;
+    private final QuestionGenerationStrategy activeStrategy;
+
+    @Value("${sockbowl.ai.packetgen.question-count:5}")
+    private int questionCount;
+
+    @Value("${sockbowl.ai.packetgen.strategy:default}")
+    private String strategyName;
+
+    public QuestionGenerationService(
+            @Qualifier("defaultStrategy") QuestionGenerationStrategy defaultStrategy,
+            @Qualifier("webSearchStrategy") QuestionGenerationStrategy webSearchStrategy,
+            @Value("${sockbowl.ai.packetgen.strategy:default}") String configuredStrategy) {
+
+        // Store all available strategies
+        this.strategies = Map.of(
+                "default", defaultStrategy,
+                "web-search", webSearchStrategy
+        );
+
+        // Select the active strategy based on configuration
+        this.activeStrategy = strategies.getOrDefault(configuredStrategy, defaultStrategy);
+        this.strategyName = configuredStrategy;
+
+        log.info("QuestionGenerationService initialized with strategy: {} ({})",
+                configuredStrategy, activeStrategy.getClass().getSimpleName());
     }
 
-    private record TossupPromptDTO(String question, String answer) {
-    }
-
+    /**
+     * Generate a complete packet of questions using the active strategy.
+     *
+     * @param topic Topic for the packet
+     * @param additionalContext Additional context or instructions
+     * @return Generated packet
+     * @throws JsonProcessingException if JSON processing fails
+     */
     public Packet generatePacket(String topic, String additionalContext) throws JsonProcessingException {
-
-        log.info("=== Starting New Packet Generation ===");
-        log.info("Topic: {}", topic);
-        log.info("Additional Context: {}", additionalContext);
-        log.info("Target number of tossups: 10");
-
-        Packet.PacketBuilder packetBuilder = Packet
-                .builder()
-                .name("Generated Packet: %s  - %s".formatted(topic, UUID.randomUUID()));
-
-        List<Tossup> existingTossups = new ArrayList<>();
-
-        for (int i = 1; i <= 5; i++) {
-            log.info("=== Generating Tossup {} of 10 ===", i + 1);
-            log.info("Current topic: {}", topic);
-            log.info("Number of existing tossups to avoid: {}", existingTossups.size());
-
-            Tossup tossup = null;
-            int maxAttempts = 3; // Maximum attempts to get a non-duplicate answer
-
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                log.info("Attempt {} to generate non-duplicate tossup", attempt);
-                tossup = generateTossup(">" + topic + " question " + i, additionalContext, existingTossups);
-
-                if (existingTossups.isEmpty()) {
-                    break;
-                }
-            }
-
-            existingTossups.add(tossup);
-
-            ContainsTossup containsTossup = ContainsTossup.builder()
-                    .order(i)
-                    .tossup(tossup)
-                    .build();
-
-            packetBuilder.tossup(containsTossup);
-        }
-
-        Packet packet = packetBuilder.build();
-
-        packetRepository.save(packet);
-
-        return packet;
+        log.info("Generating packet using strategy: {}", strategyName);
+        return activeStrategy.generatePacket(topic, additionalContext, questionCount);
     }
 
-    public Tossup generateTossup(String prompt, String additionalContext, List<Tossup> existingTossups) {
-        log.info("=== Starting Tossup Generation ===");
-        log.info("Base Prompt: {}", prompt);
-        log.info("Additional Context: {}", additionalContext);
-        log.info("Number of existing tossups to avoid: {}", existingTossups.size());
+    /**
+     * Generate a single tossup using the active strategy.
+     *
+     * @param topic Topic for the question
+     * @param additionalContext Additional context or instructions
+     * @param existingTossups Previously generated tossups to avoid duplicates
+     * @return Generated tossup
+     */
+    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups) {
+        log.info("Generating tossup using strategy: {}", strategyName);
+        return activeStrategy.generateTossup(topic, additionalContext, existingTossups);
+    }
 
-        // --- Build Enhanced Prompt using Structured Input ---
-        log.info("Building structured prompt incorporating best practices");
+    /**
+     * Get the currently active strategy name.
+     *
+     * @return Strategy name
+     */
+    public String getActiveStrategyName() {
+        return strategyName;
+    }
 
-        Map<String, Object> promptParams = new HashMap<>();
-        promptParams.put("tossup_number", existingTossups.size() + 1);
-        promptParams.put("tossup_topic", prompt);
-        promptParams.put("user_context", additionalContext);
-        promptParams.put("existing_tossups", existingTossups.stream()
-                .map(tossup -> "DO NOT INCLUDE: " + tossup.getAnswer())
-                .collect(Collectors.joining("\n")));
-
-        SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(aiPrompts.getNaqtWriterPacketGenerationPrompt());
-
-        log.info("Generated structured prompt: {}", systemPromptTemplate.render(promptParams));
-
-        TossupPromptDTO response = chatClient.prompt()
-                .user(systemPromptTemplate.render(promptParams))
-                .call()
-                .entity(TossupPromptDTO.class);
-
-        log.info("Received AI response:");
-        log.info("Question length: {} characters", response.question() != null ? response.question().length() : 0);
-        log.info("Answer length: {} characters", response.answer() != null ? response.answer().length() : 0);
-        log.info("Answer: {}", response.answer());
-
-        // Ensure response is not null before building Tossup
-        Objects.requireNonNull(response, "AI response DTO cannot be null");
-        Objects.requireNonNull(response.question(), "Generated question text cannot be null");
-        Objects.requireNonNull(response.answer(), "Generated answer text cannot be null");
-
-        return Tossup.builder()
-                .question(response.question())
-                .answer(response.answer())
-                .build();
+    /**
+     * Get the active strategy instance.
+     *
+     * @return Active strategy
+     */
+    public QuestionGenerationStrategy getActiveStrategy() {
+        return activeStrategy;
     }
 
 }
