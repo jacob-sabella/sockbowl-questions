@@ -157,8 +157,9 @@ static String resolveVersion() {
 		return ver ?: "0.0.0"
 	}
 
-	// Any other branch: just the sanitized branch name
-	return sanitizeBranch(branchName)
+	// Any other branch: sanitized branch name + short commit SHA for uniqueness
+	String shortSha = execAndRead("git rev-parse --short=7 HEAD") ?: "local"
+	return "${sanitizeBranch(branchName)}-${shortSha}"
 }
 
 static String stripLeadingV(String tag) {
