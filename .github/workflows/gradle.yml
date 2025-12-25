@@ -69,6 +69,14 @@ jobs:
           IMAGE_TAG="ghcr.io/${{ github.repository }}:${{ env.VERSION }}"
           docker push "${IMAGE_TAG}"
 
+          # Also push as :main for main branch (without hash suffix)
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            MAIN_TAG="ghcr.io/${{ github.repository }}:main"
+            docker tag "${IMAGE_TAG}" "${MAIN_TAG}"
+            docker push "${MAIN_TAG}"
+            echo "Tagged and pushed as :main"
+          fi
+
   dependency-submission:
     runs-on: ubuntu-latest
     permissions:
