@@ -9,8 +9,22 @@ import org.springframework.data.neo4j.core.schema.TargetNode;
 public class ContainsBonus {
     @RelationshipId
     private Long id;
-    private Integer order;
+    private final Integer order;
 
     @TargetNode
-    private Bonus bonus;
+    private final Bonus bonus;
+
+    // Constructor
+    public ContainsBonus(Integer order, Bonus bonus) {
+        this.order = order;
+        this.bonus = bonus;
+    }
+
+    public Integer getOrder() {
+        return order;
+    }
+
+    public Bonus getBonus() {
+        return bonus;
+    }
 }

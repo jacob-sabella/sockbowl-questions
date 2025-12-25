@@ -3,6 +3,8 @@ package com.soulsoftworks.sockbowlquestions.service.strategy;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
@@ -33,15 +35,19 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
     private final PacketRepository packetRepository;
     private final ObjectMapper objectMapper;
     private final int candidateMultiplier;
+    private final DefaultQuestionGenerationStrategy delegateStrategy;
 
     public WebSearchQuestionGenerationStrategy(
             ChatClient chatClient,
             PacketRepository packetRepository,
+            AiPrompts aiPrompts,
             @Value("${sockbowl.ai.packetgen.candidate-multiplier:3}") int candidateMultiplier) {
         this.chatClient = chatClient;
         this.packetRepository = packetRepository;
         this.objectMapper = new ObjectMapper();
         this.candidateMultiplier = candidateMultiplier;
+        // Create delegate strategy for bonus generation (for now, bonuses use default strategy)
+        this.delegateStrategy = new DefaultQuestionGenerationStrategy(chatClient, aiPrompts, packetRepository);
         log.info("Initialized WebSearchQuestionGenerationStrategy with candidate multiplier: {}", candidateMultiplier);
     }
 
@@ -103,10 +109,32 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             packetBuilder.tossup(containsTossup);
         }
 
+        // STEP 8: Generate bonuses (delegating to default strategy for now)
+        log.info("STEP 8: Generating {} bonuses (using default strategy)", questionCount);
+        List<com.soulsoftworks.sockbowlquestions.models.nodes.Bonus> existingBonuses = new ArrayList<>();
+
+        for (int i = 0; i < questionCount; i++) {
+            log.info("Generating bonus {} of {}", i + 1, questionCount);
+            com.soulsoftworks.sockbowlquestions.models.nodes.Bonus bonus = delegateStrategy.generateBonus(
+                topic,
+                additionalContext,
+                existingBonuses,
+                orderedTossups
+            );
+
+            existingBonuses.add(bonus);
+
+            com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus containsBonus =
+                new com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus(i + 1, bonus);
+
+            packetBuilder.bonus(containsBonus);
+        }
+
         Packet packet = packetBuilder.build();
         packetRepository.save(packet);
 
         log.info("=== Packet Generation Complete ===");
+        log.info("Generated {} tossups and {} bonuses", orderedTossups.size(), existingBonuses.size());
         return packet;
     }
 
@@ -134,6 +162,17 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
 
         // Craft question for this answer
         return craftQuestionForAnswer(topic, answer, factSources, additionalContext);
+    }
+
+    @Override
+    public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups) {
+        log.info("=== Generating Single Bonus (Delegating to Default Strategy) ===");
+        log.info("Note: Web-search strategy for bonuses not yet implemented, using default strategy");
+        log.info("Topic: {}", topic);
+
+        // Delegate to default strategy for now
+        // TODO: Implement knowledge-first bonus generation strategy
+        return delegateStrategy.generateBonus(topic, additionalContext, existingBonuses, existingTossups);
     }
 
     /**

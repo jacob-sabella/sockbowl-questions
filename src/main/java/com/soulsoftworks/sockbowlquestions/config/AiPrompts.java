@@ -10,4 +10,7 @@ import org.springframework.core.io.Resource;
 public class AiPrompts {
     @Value("classpath:/prompts/naqt-write-packet-generation.st")
     private Resource naqtWriterPacketGenerationPrompt;
+
+    @Value("classpath:/prompts/naqt-write-bonus-generation.st")
+    private Resource naqtWriterBonusGenerationPrompt;
 }

@@ -1,6 +1,7 @@
 package com.soulsoftworks.sockbowlquestions.service.strategy;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 
@@ -20,6 +21,17 @@ public interface QuestionGenerationStrategy {
      * @return Generated tossup
      */
     Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups);
+
+    /**
+     * Generate a single bonus.
+     *
+     * @param topic Topic for the bonus
+     * @param additionalContext Additional context or instructions
+     * @param existingBonuses Previously generated bonuses to avoid duplicates
+     * @param existingTossups Previously generated tossups for context
+     * @return Generated bonus
+     */
+    Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups);
 
     /**
      * Generate a complete packet of questions.
