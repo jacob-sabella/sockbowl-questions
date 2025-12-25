@@ -112,6 +112,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
         // STEP 8: Generate bonuses (delegating to default strategy for now)
         log.info("STEP 8: Generating {} bonuses (using default strategy)", questionCount);
         List<com.soulsoftworks.sockbowlquestions.models.nodes.Bonus> existingBonuses = new ArrayList<>();
+        List<com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus> bonusList = new ArrayList<>();
 
         for (int i = 0; i < questionCount; i++) {
             log.info("Generating bonus {} of {}", i + 1, questionCount);
@@ -126,11 +127,12 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
 
             com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus containsBonus =
                 new com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus(i + 1, bonus);
-
-            packetBuilder.bonus(containsBonus);
+            bonusList.add(containsBonus);
         }
 
-        Packet packet = packetBuilder.build();
+        Packet packet = packetBuilder
+                .bonuses(bonusList)
+                .build();
         packetRepository.save(packet);
 
         log.info("=== Packet Generation Complete ===");

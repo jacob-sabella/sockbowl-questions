@@ -33,6 +33,7 @@ public class Packet {
     private List<ContainsTossup> tossups;
 
     @Relationship(type = "CONTAINS_BONUS", direction = Relationship.Direction.OUTGOING)
+    @Singular
     private List<ContainsBonus> bonuses;
 
 

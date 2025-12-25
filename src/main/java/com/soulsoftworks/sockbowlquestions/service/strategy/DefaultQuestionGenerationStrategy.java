@@ -101,6 +101,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         }
 
         // Generate bonuses
+        List<ContainsBonus> bonusList = new ArrayList<>();
         for (int i = 0; i < questionCount; i++) {
             log.info("=== Generating Bonus {} of {} ===", i + 1, questionCount);
             log.info("Current topic: {}", topic);
@@ -121,11 +122,12 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
             existingBonuses.add(bonus);
 
             ContainsBonus containsBonus = new ContainsBonus(i + 1, bonus);
-
-            packetBuilder.bonus(containsBonus);
+            bonusList.add(containsBonus);
         }
 
-        Packet packet = packetBuilder.build();
+        Packet packet = packetBuilder
+                .bonuses(bonusList)
+                .build();
         packetRepository.save(packet);
 
         log.info("=== Packet Generation Complete ===");
