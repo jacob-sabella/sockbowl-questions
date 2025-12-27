@@ -164,7 +164,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
         Map<String, Object> promptParams = new HashMap<>();
         promptParams.put("tossup_number", existingTossups.size() + 1);
-        promptParams.put("total_questions", 20); // Default
+        promptParams.put("total_questions", 20);
         promptParams.put("tossup_topic", topic);
         promptParams.put("user_context", additionalContext != null ? additionalContext : "");
         promptParams.put("diversity_mandate", diversityMandate);

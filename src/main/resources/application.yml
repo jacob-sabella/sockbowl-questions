@@ -3,13 +3,16 @@ server:
 
 sockbowl:
   ai:
-    provider: "${SOCKBOWL_AI_PROVIDER:openai}" # Options: ollama, openai
+    provider: "${SOCKBOWL_AI_PROVIDER:openai}"
     packetgen:
       question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
-      strategy: "${SOCKBOWL_QUESTION_STRATEGY:web-search}" # Options: default, web-search (uses Browser MCP)
+      strategy: "${SOCKBOWL_QUESTION_STRATEGY:web-search}"
       candidate-multiplier: "${SOCKBOWL_CANDIDATE_MULTIPLIER:3}" # Generate X times more candidates than needed for selection
 
 spring:
+  mvc:
+    async:
+      request-timeout: 600000
   ai:
     openai:
       api-key: "${OPENAI_API_KEY:sk-openai-key}"
@@ -19,15 +22,15 @@ spring:
           model: gpt-5.1-2025-11-13 # or gpt-4o-mini for faster/cheaper, gpt-4-turbo for previous generation
           temperature: 1
       embedding:
-        enabled: false # Using Ollama for embeddings to save costs
+        enabled: false
     ollama:
       chat:
-        enabled: false # Using OpenAI for chat
+        enabled: false
         model: "deepseek-r1:70b"
       embedding:
-        enabled: true # Keep using Ollama for embeddings (1024 dimensions)
+        enabled: true
         options:
-          model: "mxbai-embed-large" # 1024 dimensions - matches existing Neo4j index
+          model: "mxbai-embed-large" # 1024 dimensions
     mcp:
       client:
         enabled: true
