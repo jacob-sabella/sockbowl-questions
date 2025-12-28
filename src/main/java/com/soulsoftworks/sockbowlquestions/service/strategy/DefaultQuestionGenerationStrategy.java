@@ -2,6 +2,7 @@ package com.soulsoftworks.sockbowlquestions.service.strategy;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
+import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
@@ -10,6 +11,7 @@ import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import com.soulsoftworks.sockbowlquestions.service.ChatClientFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
@@ -25,15 +27,15 @@ import java.util.*;
 @Slf4j
 public class DefaultQuestionGenerationStrategy implements QuestionGenerationStrategy {
 
-    private final ChatClient chatClient;
+    private final ChatClientFactory chatClientFactory;
     private final AiPrompts aiPrompts;
     private final PacketRepository packetRepository;
 
     public DefaultQuestionGenerationStrategy(
-            ChatClient chatClient,
+            ChatClientFactory chatClientFactory,
             AiPrompts aiPrompts,
             PacketRepository packetRepository) {
-        this.chatClient = chatClient;
+        this.chatClientFactory = chatClientFactory;
         this.aiPrompts = aiPrompts;
         this.packetRepository = packetRepository;
     }
@@ -58,12 +60,15 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     }
 
     @Override
-    public Packet generatePacket(String topic, String additionalContext, int questionCount) throws JsonProcessingException {
+    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses, AiRequestContext requestContext) throws JsonProcessingException {
         log.info("=== Starting New Packet Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
         log.info("Target number of tossups: {}", questionCount);
-        log.info("Will also generate {} bonuses", questionCount);
+        log.info("Generate bonuses: {}", generateBonuses);
+        if (generateBonuses) {
+            log.info("Will generate {} bonuses", questionCount);
+        }
 
         Packet.PacketBuilder packetBuilder = Packet
                 .builder()
@@ -83,7 +88,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 log.info("Attempt {} to generate non-duplicate tossup", attempt);
-                tossup = generateTossup(topic, additionalContext, existingTossups);
+                tossup = generateTossup(topic, additionalContext, existingTossups, requestContext);
 
                 if (existingTossups.isEmpty()) {
                     break;
@@ -100,29 +105,33 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
             packetBuilder.tossup(containsTossup);
         }
 
-        // Generate bonuses
+        // Generate bonuses (if requested)
         List<ContainsBonus> bonusList = new ArrayList<>();
-        for (int i = 0; i < questionCount; i++) {
-            log.info("=== Generating Bonus {} of {} ===", i + 1, questionCount);
-            log.info("Current topic: {}", topic);
-            log.info("Number of existing bonuses to avoid: {}", existingBonuses.size());
+        if (generateBonuses) {
+            for (int i = 0; i < questionCount; i++) {
+                log.info("=== Generating Bonus {} of {} ===", i + 1, questionCount);
+                log.info("Current topic: {}", topic);
+                log.info("Number of existing bonuses to avoid: {}", existingBonuses.size());
 
-            Bonus bonus = null;
-            int maxAttempts = 3;
+                Bonus bonus = null;
+                int maxAttempts = 3;
 
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                log.info("Attempt {} to generate non-duplicate bonus", attempt);
-                bonus = generateBonus(topic, additionalContext, existingBonuses, existingTossups);
+                for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                    log.info("Attempt {} to generate non-duplicate bonus", attempt);
+                    bonus = generateBonus(topic, additionalContext, existingBonuses, existingTossups, requestContext);
 
-                if (existingBonuses.isEmpty()) {
-                    break;
+                    if (existingBonuses.isEmpty()) {
+                        break;
+                    }
                 }
+
+                existingBonuses.add(bonus);
+
+                ContainsBonus containsBonus = new ContainsBonus(i + 1, bonus);
+                bonusList.add(containsBonus);
             }
-
-            existingBonuses.add(bonus);
-
-            ContainsBonus containsBonus = new ContainsBonus(i + 1, bonus);
-            bonusList.add(containsBonus);
+        } else {
+            log.info("Skipping bonus generation as requested");
         }
 
         Packet packet = packetBuilder
@@ -131,13 +140,20 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         packetRepository.save(packet);
 
         log.info("=== Packet Generation Complete ===");
-        log.info("Generated {} tossups and {} bonuses", existingTossups.size(), existingBonuses.size());
+        if (generateBonuses) {
+            log.info("Generated {} tossups and {} bonuses", existingTossups.size(), existingBonuses.size());
+        } else {
+            log.info("Generated {} tossups (bonuses skipped)", existingTossups.size());
+        }
 
         return packet;
     }
 
     @Override
-    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups) {
+    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups, AiRequestContext requestContext) {
+        // Resolve ChatClient based on request context
+        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
+
         log.info("=== Starting Tossup Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
@@ -230,7 +246,10 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     }
 
     @Override
-    public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups) {
+    public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups, AiRequestContext requestContext) {
+        // Resolve ChatClient based on request context
+        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
+
         log.info("=== Starting Bonus Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);

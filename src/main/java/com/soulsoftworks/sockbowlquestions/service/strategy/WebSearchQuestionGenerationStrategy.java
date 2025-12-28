@@ -4,11 +4,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
+import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
+import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import com.soulsoftworks.sockbowlquestions.service.ChatClientFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,36 +21,36 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Browser-based question generation strategy (uses Browser MCP for automation).
+ * Knowledge-first question generation strategy.
  *
  * This strategy:
- * 1. Uses Browser MCP (Playwright) to navigate and search web pages
+ * 1. Gathers comprehensive knowledge using the LLM
  * 2. Generates a list of potential answers based on gathered facts
  * 3. For each answer, crafts a pyramidal NAQT-style question
- *
- * Uses Browser MCP server - full browser automation, no API keys required.
+ * 4. Detects and resolves cross-references between questions
+ * 5. Orders questions intelligently to minimize giveaways
  */
 @Component("webSearchStrategy")
 @Slf4j
 public class WebSearchQuestionGenerationStrategy implements QuestionGenerationStrategy {
 
-    private final ChatClient chatClient;
+    private final ChatClientFactory chatClientFactory;
     private final PacketRepository packetRepository;
     private final ObjectMapper objectMapper;
     private final int candidateMultiplier;
     private final DefaultQuestionGenerationStrategy delegateStrategy;
 
     public WebSearchQuestionGenerationStrategy(
-            ChatClient chatClient,
+            ChatClientFactory chatClientFactory,
             PacketRepository packetRepository,
             AiPrompts aiPrompts,
             @Value("${sockbowl.ai.packetgen.candidate-multiplier:3}") int candidateMultiplier) {
-        this.chatClient = chatClient;
+        this.chatClientFactory = chatClientFactory;
         this.packetRepository = packetRepository;
         this.objectMapper = new ObjectMapper();
         this.candidateMultiplier = candidateMultiplier;
         // Create delegate strategy for bonus generation (for now, bonuses use default strategy)
-        this.delegateStrategy = new DefaultQuestionGenerationStrategy(chatClient, aiPrompts, packetRepository);
+        this.delegateStrategy = new DefaultQuestionGenerationStrategy(chatClientFactory, aiPrompts, packetRepository);
         log.info("Initialized WebSearchQuestionGenerationStrategy with candidate multiplier: {}", candidateMultiplier);
     }
 
@@ -57,20 +60,24 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
     }
 
     @Override
-    public Packet generatePacket(String topic, String additionalContext, int questionCount) throws JsonProcessingException {
+    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses, AiRequestContext requestContext) throws JsonProcessingException {
+        // Resolve ChatClient based on request context
+        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
+
         log.info("=== Starting Packet Generation (Knowledge-First Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
         log.info("Target number of tossups: {}", questionCount);
+        log.info("Generate bonuses: {}", generateBonuses);
 
         // STEP 1: Gather comprehensive knowledge using local LLM
         log.info("STEP 1: Generating comprehensive knowledge about: {}", topic);
-        String factSources = gatherKnowledge(topic, additionalContext);
+        String factSources = gatherKnowledge(chatClient, topic, additionalContext);
         log.info("Generated {} characters of knowledge content", factSources.length());
 
         // STEP 2: Iteratively generate and refine answers until they match criteria
         log.info("STEP 2: Iteratively generating {} high-quality answers matching context", questionCount);
-        List<String> answers = iterativelyGenerateAnswers(topic, additionalContext, factSources, questionCount);
+        List<String> answers = iterativelyGenerateAnswers(chatClient, topic, additionalContext, factSources, questionCount);
         log.info("Final answer set ({} answers): {}", answers.size(), answers);
 
         // STEP 3: For each answer, craft a question
@@ -81,17 +88,17 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             String answer = answers.get(i);
             log.info("Crafting question {} of {} for answer: {}", i + 1, answers.size(), answer);
 
-            Tossup tossup = craftQuestionForAnswer(topic, answer, factSources, additionalContext);
+            Tossup tossup = craftQuestionForAnswer(chatClient, topic, answer, factSources, additionalContext);
             tossups.add(tossup);
         }
 
         // STEP 4: Analyze for cross-references and resolve cycles
         log.info("STEP 4: Analyzing questions for cross-references and resolving any cycles");
-        List<Tossup> finalTossups = resolveCrossReferencesAndCycles(tossups, topic, additionalContext, factSources, answers);
+        List<Tossup> finalTossups = resolveCrossReferencesAndCycles(chatClient, tossups, topic, additionalContext, factSources, answers);
 
         // STEP 5: Order questions intelligently to minimize giveaways
         log.info("STEP 5: Ordering questions to minimize cross-reference giveaways");
-        List<QuestionReference> finalReferences = analyzeQuestionCrossReferences(finalTossups);
+        List<QuestionReference> finalReferences = analyzeQuestionCrossReferences(chatClient, finalTossups);
         List<Tossup> orderedTossups = orderQuestionsIntelligently(finalTossups, finalReferences);
 
         // STEP 7: Build final packet with ordered questions
@@ -109,25 +116,30 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             packetBuilder.tossup(containsTossup);
         }
 
-        // STEP 8: Generate bonuses (delegating to default strategy for now)
-        log.info("STEP 8: Generating {} bonuses (using default strategy)", questionCount);
+        // STEP 8: Generate bonuses (if requested)
         List<com.soulsoftworks.sockbowlquestions.models.nodes.Bonus> existingBonuses = new ArrayList<>();
         List<com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus> bonusList = new ArrayList<>();
 
-        for (int i = 0; i < questionCount; i++) {
-            log.info("Generating bonus {} of {}", i + 1, questionCount);
-            com.soulsoftworks.sockbowlquestions.models.nodes.Bonus bonus = delegateStrategy.generateBonus(
-                topic,
-                additionalContext,
-                existingBonuses,
-                orderedTossups
-            );
+        if (generateBonuses) {
+            log.info("STEP 8: Generating {} bonuses", questionCount);
+            for (int i = 0; i < questionCount; i++) {
+                log.info("Generating bonus {} of {}", i + 1, questionCount);
+                com.soulsoftworks.sockbowlquestions.models.nodes.Bonus bonus = generateBonus(
+                    topic,
+                    additionalContext,
+                    existingBonuses,
+                    orderedTossups,
+                    requestContext
+                );
 
-            existingBonuses.add(bonus);
+                existingBonuses.add(bonus);
 
-            com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus containsBonus =
-                new com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus(i + 1, bonus);
-            bonusList.add(containsBonus);
+                com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus containsBonus =
+                    new com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus(i + 1, bonus);
+                bonusList.add(containsBonus);
+            }
+        } else {
+            log.info("STEP 8: Skipping bonus generation as requested");
         }
 
         Packet packet = packetBuilder
@@ -136,24 +148,31 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
         packetRepository.save(packet);
 
         log.info("=== Packet Generation Complete ===");
-        log.info("Generated {} tossups and {} bonuses", orderedTossups.size(), existingBonuses.size());
+        if (generateBonuses) {
+            log.info("Generated {} tossups and {} bonuses", orderedTossups.size(), existingBonuses.size());
+        } else {
+            log.info("Generated {} tossups (bonuses skipped)", orderedTossups.size());
+        }
         return packet;
     }
 
     @Override
-    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups) {
+    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups, AiRequestContext requestContext) {
+        // Resolve ChatClient based on request context
+        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
+
         log.info("=== Generating Single Tossup (Knowledge-First Strategy) ===");
         log.info("Topic: {}", topic);
 
         // Gather knowledge
-        String factSources = gatherKnowledge(topic, additionalContext);
+        String factSources = gatherKnowledge(chatClient, topic, additionalContext);
 
         // Generate a single answer
         List<String> existingAnswers = existingTossups.stream()
                 .map(Tossup::getAnswer)
                 .collect(Collectors.toList());
 
-        List<String> answers = generateAnswerList(topic, additionalContext, factSources, 1, existingAnswers);
+        List<String> answers = generateAnswerList(chatClient, topic, additionalContext, factSources, 1, existingAnswers);
 
         if (answers.isEmpty()) {
             throw new RuntimeException("Failed to generate answer for topic: " + topic);
@@ -163,192 +182,380 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
         log.info("Generated answer: {}", answer);
 
         // Craft question for this answer
-        return craftQuestionForAnswer(topic, answer, factSources, additionalContext);
+        return craftQuestionForAnswer(chatClient, topic, answer, factSources, additionalContext);
     }
 
     @Override
-    public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups) {
-        log.info("=== Generating Single Bonus (Delegating to Default Strategy) ===");
-        log.info("Note: Web-search strategy for bonuses not yet implemented, using default strategy");
-        log.info("Topic: {}", topic);
+    public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups, AiRequestContext requestContext) {
+        // Resolve ChatClient based on request context
+        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
 
-        // Delegate to default strategy for now
-        // TODO: Implement knowledge-first bonus generation strategy
-        return delegateStrategy.generateBonus(topic, additionalContext, existingBonuses, existingTossups);
+        log.info("=== Generating Single Bonus (Knowledge-First Strategy) ===");
+        log.info("Topic: {}", topic);
+        log.info("Additional Context: {}", additionalContext);
+
+        // STEP 1: Gather knowledge about the topic
+        log.info("STEP 1: Gathering knowledge for bonus generation");
+        String factSources = gatherKnowledge(chatClient, topic, additionalContext);
+
+        // STEP 2: Generate a themed triplet of answers
+        log.info("STEP 2: Generating themed answer triplet");
+        BonusAnswerTriplet answerTriplet = generateBonusAnswerTriplet(
+                chatClient,
+                topic,
+                additionalContext,
+                factSources,
+                existingBonuses,
+                existingTossups
+        );
+
+        log.info("Generated bonus theme: {}", answerTriplet.theme);
+        log.info("Answer A: {}", answerTriplet.answerA);
+        log.info("Answer B: {}", answerTriplet.answerB);
+        log.info("Answer C: {}", answerTriplet.answerC);
+
+        // STEP 3: Generate preamble based on the theme and answers
+        log.info("STEP 3: Generating preamble from theme");
+        String preamble = generateBonusPreamble(chatClient, answerTriplet);
+
+        // STEP 4: Generate individual questions for each answer
+        log.info("STEP 4: Generating questions for each answer");
+        String questionA = generateBonusPartQuestion(chatClient, answerTriplet.theme, answerTriplet.answerA, preamble, "A");
+        String questionB = generateBonusPartQuestion(chatClient, answerTriplet.theme, answerTriplet.answerB, preamble, "B");
+        String questionC = generateBonusPartQuestion(chatClient, answerTriplet.theme, answerTriplet.answerC, preamble, "C");
+
+        // Create bonus parts
+        BonusPart partA = new BonusPart();
+        partA.setQuestion(questionA);
+        partA.setAnswer(answerTriplet.answerA);
+
+        BonusPart partB = new BonusPart();
+        partB.setQuestion(questionB);
+        partB.setAnswer(answerTriplet.answerB);
+
+        BonusPart partC = new BonusPart();
+        partC.setQuestion(questionC);
+        partC.setAnswer(answerTriplet.answerC);
+
+        // Create bonus with parts
+        Bonus bonus = new Bonus();
+        bonus.setPreamble(preamble);
+        bonus.setBonusParts(Arrays.asList(
+                new com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart(1, partA),
+                new com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart(2, partB),
+                new com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart(3, partC)
+        ));
+
+        log.info("=== Bonus Generation Complete ===");
+        return bonus;
     }
 
     /**
-     * STEP 1: Gather knowledge using Browser MCP (Playwright automation).
-     * Navigates to search engines and extracts information.
+     * Record to hold a bonus answer triplet with theme
      */
-    private String gatherKnowledge(String topic, String additionalContext) {
-        log.info("Gathering knowledge via Browser MCP for topic: {}", topic);
+    private record BonusAnswerTriplet(
+            String theme,
+            String answerA,
+            String answerB,
+            String answerC
+    ) {}
+
+    /**
+     * Generate a themed triplet of bonus answers
+     */
+    private BonusAnswerTriplet generateBonusAnswerTriplet(
+            ChatClient chatClient,
+            String topic,
+            String additionalContext,
+            String factSources,
+            List<Bonus> existingBonuses,
+            List<Tossup> existingTossups) {
+
+        log.info("Generating themed bonus answer triplet");
+
+        // Build list of existing answers to avoid
+        List<String> existingAnswers = new ArrayList<>();
+
+        // Add existing bonus answers
+        for (Bonus bonus : existingBonuses) {
+            if (bonus.getBonusParts() != null) {
+                for (var part : bonus.getBonusParts()) {
+                    if (part.getBonusPart() != null && part.getBonusPart().getAnswer() != null) {
+                        existingAnswers.add(part.getBonusPart().getAnswer());
+                    }
+                }
+            }
+        }
+
+        // Add existing tossup answers
+        for (Tossup tossup : existingTossups) {
+            if (tossup.getAnswer() != null) {
+                existingAnswers.add(tossup.getAnswer());
+            }
+        }
+
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append("Based on the following knowledge about '").append(topic).append("', generate a themed quiz bowl bonus.\n\n");
+
+        if (additionalContext != null && !additionalContext.isEmpty()) {
+            promptBuilder.append("Additional context: ").append(additionalContext).append("\n\n");
+        }
+
+        promptBuilder.append("KNOWLEDGE:\n").append(factSources).append("\n\n");
+
+        promptBuilder.append("Generate a themed triplet of THREE related answers for an ADVANCED quiz bowl bonus.\n\n");
+
+        promptBuilder.append("REQUIREMENTS:\n");
+        promptBuilder.append("1. All three answers must be related by a SPECIFIC, INTERESTING theme\n");
+        promptBuilder.append("2. The theme should be QUIZ BOWL-WORTHY (not too obvious, requires knowledge)\n");
+        promptBuilder.append("3. Each answer must be a SPECIFIC, referenceable entity (proper noun, defined term, specific work, etc.)\n");
+        promptBuilder.append("4. Answers should be formatted in NAQT answer line format\n");
+        promptBuilder.append("5. AVOID obvious/canonical examples - choose lesser-known but notable answers\n");
+        promptBuilder.append("6. The three answers should have similar difficulty levels\n");
+        promptBuilder.append("7. The theme should be specific enough to be interesting but broad enough to support 3 answers\n\n");
+
+        promptBuilder.append("EXAMPLE THEMES (for reference, create your own):\n");
+        promptBuilder.append("- 'Works that prominently feature mirrors or reflections'\n");
+        promptBuilder.append("- 'Scientific discoveries made by accident'\n");
+        promptBuilder.append("- 'Historical figures who died in duels'\n");
+        promptBuilder.append("- 'Artworks depicting the Annunciation'\n");
+        promptBuilder.append("- 'Poems written in terza rima'\n\n");
+
+        if (!existingAnswers.isEmpty()) {
+            promptBuilder.append("AVOID these answers (already used):\n");
+            for (String ans : existingAnswers) {
+                promptBuilder.append("- ").append(ans).append("\n");
+            }
+            promptBuilder.append("\n");
+        }
+
+        promptBuilder.append("Return as JSON with fields: theme, answer_a, answer_b, answer_c\n");
+        promptBuilder.append("The theme should be a clear, specific description of what connects the three answers.\n");
+
+        int maxRetries = 5;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                log.info("Attempt {} to generate bonus answer triplet", attempt);
+
+                String response = chatClient.prompt()
+                        .user(promptBuilder.toString())
+                        .call()
+                        .content();
+
+                log.info("Raw triplet response: {}", response);
+
+                String json = extractJson(response);
+                Map<String, String> tripletData = objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+
+                String theme = tripletData.get("theme");
+                String answerA = tripletData.get("answer_a");
+                String answerB = tripletData.get("answer_b");
+                String answerC = tripletData.get("answer_c");
+
+                if (theme != null && answerA != null && answerB != null && answerC != null) {
+                    log.info("Successfully generated bonus answer triplet");
+                    return new BonusAnswerTriplet(theme, answerA, answerB, answerC);
+                }
+
+                throw new IllegalArgumentException("Missing required fields in triplet response");
+
+            } catch (Exception e) {
+                log.warn("Attempt {} failed: {}", attempt, e.getMessage());
+                if (attempt == maxRetries) {
+                    log.error("Failed to generate bonus answer triplet after {} attempts", maxRetries);
+                    throw new RuntimeException("Failed to generate bonus answer triplet: " + e.getMessage(), e);
+                }
+            }
+        }
+
+        throw new RuntimeException("Failed to generate bonus answer triplet");
+    }
+
+    /**
+     * Generate preamble from themed answers
+     */
+    private String generateBonusPreamble(ChatClient chatClient, BonusAnswerTriplet triplet) {
+        log.info("Generating preamble for theme: {}", triplet.theme);
+
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append("Generate a concise, engaging preamble for a quiz bowl bonus.\n\n");
+        promptBuilder.append("The bonus theme is: ").append(triplet.theme).append("\n\n");
+        promptBuilder.append("The three answers are:\n");
+        promptBuilder.append("- ").append(triplet.answerA).append("\n");
+        promptBuilder.append("- ").append(triplet.answerB).append("\n");
+        promptBuilder.append("- ").append(triplet.answerC).append("\n\n");
+
+        promptBuilder.append("PREAMBLE REQUIREMENTS:\n");
+        promptBuilder.append("1. Should be 1-2 sentences (roughly 20-40 words)\n");
+        promptBuilder.append("2. Clearly state the theme/connection\n");
+        promptBuilder.append("3. Set up what the three parts will ask about\n");
+        promptBuilder.append("4. Should end with a phrase like 'For 10 points each:' or 'For ten points each, answer the following:'\n");
+        promptBuilder.append("5. Be engaging and precise\n\n");
+
+        promptBuilder.append("EXAMPLE PREAMBLES:\n");
+        promptBuilder.append("- 'This bonus is about works of art that depict the Annunciation. For 10 points each:'\n");
+        promptBuilder.append("- 'Answer these questions about scientific discoveries made by accident. For ten points each:'\n");
+        promptBuilder.append("- 'Identify these historical figures who met their end in duels, for 10 points each:'\n\n");
+
+        promptBuilder.append("Return ONLY the preamble text as a JSON object with a single field 'preamble'.\n");
+
+        int maxRetries = 5;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                log.info("Attempt {} to generate preamble", attempt);
+
+                String response = chatClient.prompt()
+                        .user(promptBuilder.toString())
+                        .call()
+                        .content();
+
+                log.info("Raw preamble response: {}", response);
+
+                String json = extractJson(response);
+                Map<String, String> preambleData = objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+
+                String preamble = preambleData.get("preamble");
+                if (preamble != null && !preamble.isEmpty()) {
+                    log.info("Successfully generated preamble: {}", preamble);
+                    return preamble;
+                }
+
+                throw new IllegalArgumentException("Missing preamble in response");
+
+            } catch (Exception e) {
+                log.warn("Attempt {} failed: {}", attempt, e.getMessage());
+                if (attempt == maxRetries) {
+                    log.error("Failed to generate preamble after {} attempts", maxRetries);
+                    throw new RuntimeException("Failed to generate preamble: " + e.getMessage(), e);
+                }
+            }
+        }
+
+        throw new RuntimeException("Failed to generate preamble");
+    }
+
+    /**
+     * Generate a single bonus part question for a given answer
+     */
+    private String generateBonusPartQuestion(
+            ChatClient chatClient,
+            String theme,
+            String answer,
+            String preamble,
+            String partLabel) {
+
+        log.info("Generating question for part {} with answer: {}", partLabel, answer);
+
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append("Generate a quiz bowl bonus part question for this answer.\n\n");
+        promptBuilder.append("Bonus theme: ").append(theme).append("\n");
+        promptBuilder.append("Preamble: ").append(preamble).append("\n\n");
+        promptBuilder.append("Part ").append(partLabel).append(" Answer: ").append(answer).append("\n\n");
+
+        promptBuilder.append("QUESTION REQUIREMENTS:\n");
+        promptBuilder.append("1. Should be 1-3 sentences (roughly 30-80 words)\n");
+        promptBuilder.append("2. Provide enough clues to identify the answer\n");
+        promptBuilder.append("3. Include SPECIFIC, VERIFIABLE facts\n");
+        promptBuilder.append("4. Progress from harder to easier clues within the question\n");
+        promptBuilder.append("5. Should be self-contained but relate to the theme\n");
+        promptBuilder.append("6. Don't start with 'Part A:', 'Part B:', etc. - just the question text\n\n");
+
+        promptBuilder.append("Return ONLY the question text as a JSON object with a single field 'question'.\n");
+
+        int maxRetries = 5;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                log.info("Attempt {} to generate part {} question", attempt, partLabel);
+
+                String response = chatClient.prompt()
+                        .user(promptBuilder.toString())
+                        .call()
+                        .content();
+
+                log.info("Raw question response: {}", response);
+
+                String json = extractJson(response);
+                Map<String, String> questionData = objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+
+                String question = questionData.get("question");
+                if (question != null && !question.isEmpty()) {
+                    log.info("Successfully generated question for part {}", partLabel);
+                    return question;
+                }
+
+                throw new IllegalArgumentException("Missing question in response");
+
+            } catch (Exception e) {
+                log.warn("Attempt {} failed: {}", attempt, e.getMessage());
+                if (attempt == maxRetries) {
+                    log.error("Failed to generate part {} question after {} attempts", partLabel, maxRetries);
+                    throw new RuntimeException("Failed to generate part question: " + e.getMessage(), e);
+                }
+            }
+        }
+
+        throw new RuntimeException("Failed to generate part question");
+    }
+
+    /**
+     * STEP 1: Gather comprehensive knowledge using the LLM.
+     */
+    private String gatherKnowledge(ChatClient chatClient, String topic, String additionalContext) {
+        log.info("Gathering comprehensive knowledge for topic: {}", topic);
 
         StringBuilder knowledge = new StringBuilder();
 
         try {
-            // First: Generate smart search queries using LLM
-            log.info("Generating optimized search queries for: {}", topic);
-            SearchQueries searchQueries = generateSmartSearchQueries(topic, additionalContext);
-            log.info("Generated search queries: {}", searchQueries);
-
-            // Search 1: Primary optimized search
-            log.info("Search 1: Primary search with query: '{}'", searchQueries.primary);
-            String primaryResults = performBrowserSearch(searchQueries.primary, topic);
-            knowledge.append("=== Primary Search Results ===\n").append(primaryResults).append("\n\n");
-
-            // Search 2: Encyclopedia/Wiki search (if applicable)
-            if (searchQueries.wikiQuery != null && !searchQueries.wikiQuery.isEmpty()) {
-                log.info("Search 2: Encyclopedia search with query: '{}'", searchQueries.wikiQuery);
-                String wikiResults = performBrowserSearch(searchQueries.wikiQuery, topic);
-                knowledge.append("=== Encyclopedia/Wiki Results ===\n").append(wikiResults).append("\n\n");
-            }
-
-            // Search 3: Specialized/Technical search
-            if (searchQueries.specializedQuery != null && !searchQueries.specializedQuery.isEmpty()) {
-                log.info("Search 3: Specialized search with query: '{}'", searchQueries.specializedQuery);
-                String specializedResults = performBrowserSearch(searchQueries.specializedQuery, topic);
-                knowledge.append("=== Specialized Results ===\n").append(specializedResults).append("\n\n");
-            }
-
-            // Search 4: Context-specific search
-            if (additionalContext != null && !additionalContext.isEmpty() &&
-                searchQueries.contextQuery != null && !searchQueries.contextQuery.isEmpty()) {
-                log.info("Search 4: Context-specific search with query: '{}'", searchQueries.contextQuery);
-                String contextResults = performBrowserSearch(searchQueries.contextQuery, topic);
-                knowledge.append("=== Contextual Results ===\n").append(contextResults).append("\n\n");
-            }
-
-            // Search 5 & 6: Second and third-order concept searches for diversity
-            log.info("Searching for second and third-order related concepts for diversity");
-            String relatedConcepts = searchRelatedConcepts(topic, additionalContext, knowledge.toString());
-            if (!relatedConcepts.isEmpty()) {
-                knowledge.append("=== Related Concepts (Second/Third-Order) ===\n").append(relatedConcepts).append("\n\n");
-            }
-
-        } catch (Exception e) {
-            log.error("Error gathering knowledge via browser: {}", e.getMessage(), e);
-
-            // Fallback to LLM knowledge
-            log.warn("Browser search failed, falling back to LLM knowledge");
-            try {
-                String llmKnowledge = chatClient.prompt()
-                        .user("Provide comprehensive, factual information about: " + topic +
-                              "\n\nInclude diverse aspects, key facts, and notable details.")
-                        .call()
-                        .content();
-                knowledge.append("=== LLM Fallback Knowledge ===\n").append(llmKnowledge).append("\n\n");
-            } catch (Exception e2) {
-                log.error("Even fallback failed: {}", e2.getMessage(), e2);
-            }
-        }
-
-        return knowledge.toString();
-    }
-
-    /**
-     * Record to hold multiple search query strategies
-     */
-    private record SearchQueries(
-            String primary,
-            String wikiQuery,
-            String specializedQuery,
-            String contextQuery
-    ) {}
-
-    /**
-     * Use LLM to generate smart, optimized search queries based on the topic
-     */
-    private SearchQueries generateSmartSearchQueries(String topic, String additionalContext) {
-        log.info("Using LLM to generate optimized search queries");
-
-        try {
+            // Build comprehensive knowledge prompt
             StringBuilder promptBuilder = new StringBuilder();
-            promptBuilder.append("You are a search query optimizer for ADVANCED quiz bowl questions. Generate search queries that will find DEEP, NON-OBVIOUS information.\n\n");
-            promptBuilder.append("Topic: ").append(topic).append("\n");
-            if (additionalContext != null && !additionalContext.isEmpty()) {
-                promptBuilder.append("Context: ").append(additionalContext).append("\n");
-            }
-            promptBuilder.append("\n");
-            promptBuilder.append("CRITICAL GUIDANCE - AVOID THE OBVIOUS:\n");
-            promptBuilder.append("- DO NOT search for the most famous/canonical examples\n");
-            promptBuilder.append("- DO NOT search for basic introductory information\n");
-            promptBuilder.append("- DO search for lesser-known but still notable aspects\n");
-            promptBuilder.append("- DO search for specialized, technical, or niche angles\n");
-            promptBuilder.append("- DO search for unexpected connections and influences\n");
-            promptBuilder.append("\n");
-            promptBuilder.append("Generate 3-4 optimized search queries:\n");
-            promptBuilder.append("1. PRIMARY: Deep dive search avoiding the most obvious aspects (add terms like wiki, encyclopedia if encyclopedic)\n");
-            promptBuilder.append("2. WIKI: Encyclopedia search for lesser-known but notable examples (or null if not applicable)\n");
-            promptBuilder.append("3. SPECIALIZED: Technical, academic, or expert-level sources about non-obvious aspects\n");
-            if (additionalContext != null && !additionalContext.isEmpty()) {
-                promptBuilder.append("4. CONTEXT: Context-specific search emphasizing depth over breadth\n");
-            }
-            promptBuilder.append("\n");
-            promptBuilder.append("Return as JSON with fields: primary, wiki, specialized, context\n");
-            promptBuilder.append("Each field should contain a search query string or null.\n");
+            promptBuilder.append("Provide comprehensive, factual, and detailed information about: ").append(topic);
 
-            String response = chatClient.prompt()
+            if (additionalContext != null && !additionalContext.isEmpty()) {
+                promptBuilder.append("\n\nAdditional context/requirements: ").append(additionalContext);
+            }
+
+            promptBuilder.append("\n\nYour response should include:");
+            promptBuilder.append("\n- Key facts, dates, names, and specific details");
+            promptBuilder.append("\n- Historical context and significance");
+            promptBuilder.append("\n- Notable examples and instances (avoid only the most famous/canonical ones)");
+            promptBuilder.append("\n- Technical or specialized information");
+            promptBuilder.append("\n- Diverse aspects covering different categories and time periods");
+            promptBuilder.append("\n- Lesser-known but notable and significant details");
+            promptBuilder.append("\n\nFocus on providing rich, specific, verifiable information that can support ADVANCED quiz bowl questions.");
+
+            String llmKnowledge = chatClient.prompt()
                     .user(promptBuilder.toString())
                     .call()
                     .content();
 
-            log.info("Raw search query response: {}", response);
+            knowledge.append("=== Comprehensive Knowledge ===\n").append(llmKnowledge).append("\n\n");
 
-            // Extract and parse JSON
-            String json = extractJson(response);
-            Map<String, String> queries = objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+            // Gather additional perspectives if context is provided
+            if (additionalContext != null && !additionalContext.isEmpty()) {
+                log.info("Gathering additional context-specific knowledge");
 
-            return new SearchQueries(
-                    queries.getOrDefault("primary", topic),
-                    queries.get("wiki"),
-                    queries.get("specialized"),
-                    queries.get("context")
-            );
+                String contextPrompt = String.format(
+                    "Focusing specifically on '%s' in the context of '%s', provide additional details, examples, and information that would be valuable for creating advanced quiz bowl questions. Include lesser-known but notable aspects.",
+                    topic, additionalContext
+                );
 
-        } catch (Exception e) {
-            log.error("Failed to generate smart queries, using basic query: {}", e.getMessage());
-            // Fallback to simple queries
-            return new SearchQueries(
-                    topic,
-                    topic + " wikipedia",
-                    topic + " technical details",
-                    additionalContext != null ? topic + " " + additionalContext : null
-            );
-        }
-    }
+                String contextKnowledge = chatClient.prompt()
+                        .user(contextPrompt)
+                        .call()
+                        .content();
 
-    /**
-     * Perform a browser search and extract information
-     */
-    private String performBrowserSearch(String query, String topic) {
-        try {
-            String prompt = "Use the browser tools to:\n" +
-                    "1. Navigate to https://duckduckgo.com\n" +
-                    "2. Search for: " + query + "\n" +
-                    "3. Extract the main search results (titles, snippets)\n" +
-                    "4. Click on the most credible result (prefer .edu, Wikipedia, established sources)\n" +
-                    "5. Extract detailed information from that page\n" +
-                    "\n" +
-                    "Then provide comprehensive factual information about '" + topic + "' from what you found.\n" +
-                    "Focus on:\n" +
-                    "- Key facts, dates, names, and specific details\n" +
-                    "- Historical context and significance\n" +
-                    "- Notable examples and instances\n" +
-                    "- Technical or specialized information\n" +
-                    "\n" +
-                    "Ignore advertisements and navigation. Extract factual content only.";
-
-            return chatClient.prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+                knowledge.append("=== Context-Specific Knowledge ===\n").append(contextKnowledge).append("\n\n");
+            }
 
         } catch (Exception e) {
-            log.error("Browser search failed for query '{}': {}", query, e.getMessage());
-            return "Search failed for query: " + query;
+            log.error("Error gathering knowledge: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to gather knowledge for topic: " + topic, e);
         }
+
+        log.info("Successfully gathered {} characters of knowledge", knowledge.length());
+        return knowledge.toString();
     }
+
 
     /**
      * Iteratively generate and refine answers until they meet quality criteria.
@@ -358,6 +565,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
      * 3. If not enough good matches, searches deeper and repeats
      */
     private List<String> iterativelyGenerateAnswers(
+            ChatClient chatClient,
             String topic,
             String additionalContext,
             String factSources,
@@ -383,6 +591,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             log.info("Generating {} answer candidates (need {} more)", candidateCount, neededAnswers);
 
             List<String> candidates = generateAnswerList(
+                    chatClient,
                     topic,
                     additionalContext,
                     cumulativeFacts.toString(),
@@ -394,6 +603,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
 
             // Evaluate and score candidates against context
             List<EvaluatedAnswer> evaluatedCandidates = evaluateAnswers(
+                    chatClient,
                     candidates,
                     topic,
                     additionalContext,
@@ -422,7 +632,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
                         selectedAnswers.size(), neededAnswers);
 
                 // Generate more focused search queries based on what's missing
-                String deeperSearch = performDeeperSearch(topic, additionalContext, finalAnswers);
+                String deeperSearch = performDeeperSearch(chatClient, topic, additionalContext, finalAnswers);
                 cumulativeFacts.append("\n\n=== Iteration ").append(iteration)
                                .append(" Deeper Search ===\n").append(deeperSearch);
 
@@ -446,6 +656,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
      * Evaluate answer candidates against the additional context
      */
     private List<EvaluatedAnswer> evaluateAnswers(
+            ChatClient chatClient,
             List<String> candidates,
             String topic,
             String additionalContext,
@@ -498,12 +709,20 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
 
             log.info("Raw evaluation response: {}", response);
 
-            // Parse evaluation
-            String json = extractJsonArray(response);
-            List<Map<String, Object>> evaluations = objectMapper.readValue(
-                    json,
-                    new TypeReference<List<Map<String, Object>>>() {}
+            // Try to parse with JSON remediation retry logic
+            List<Map<String, Object>> evaluations = parseEvaluationJsonWithRetry(
+                    chatClient,
+                    response,
+                    candidates.size()
             );
+
+            if (evaluations == null) {
+                // All remediation attempts failed
+                log.error("All JSON remediation attempts failed, returning all candidates with neutral scores");
+                return candidates.stream()
+                        .map(ans -> new EvaluatedAnswer(ans, 5.0, "JSON parsing failed after retries"))
+                        .collect(Collectors.toList());
+            }
 
             List<EvaluatedAnswer> results = new ArrayList<>();
             for (Map<String, Object> eval : evaluations) {
@@ -524,6 +743,115 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             return candidates.stream()
                     .map(ans -> new EvaluatedAnswer(ans, 5.0, "Evaluation failed"))
                     .collect(Collectors.toList());
+        }
+    }
+
+    /**
+     * Parse evaluation JSON with retry and remediation logic.
+     * Tries up to 5 times to fix malformed JSON before giving up.
+     *
+     * @param chatClient ChatClient for asking LLM to fix JSON
+     * @param rawResponse Raw response from LLM
+     * @param expectedCount Expected number of items in the array
+     * @return Parsed list of evaluations, or null if all attempts failed
+     */
+    private List<Map<String, Object>> parseEvaluationJsonWithRetry(
+            ChatClient chatClient,
+            String rawResponse,
+            int expectedCount) {
+
+        final int maxAttempts = 5;
+        String currentJson = rawResponse;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                log.info("JSON parse attempt {} of {}", attempt, maxAttempts);
+
+                // Extract JSON array from response
+                String json = extractJsonArray(currentJson);
+
+                // Try to parse
+                List<Map<String, Object>> evaluations = objectMapper.readValue(
+                        json,
+                        new TypeReference<List<Map<String, Object>>>() {}
+                );
+
+                // Validate we got all expected items
+                if (evaluations.size() < expectedCount) {
+                    log.warn("Parsed {} items but expected {}. Trying remediation.",
+                            evaluations.size(), expectedCount);
+                    throw new IllegalArgumentException(
+                            "Incomplete JSON: got " + evaluations.size() + " items, expected " + expectedCount
+                    );
+                }
+
+                log.info("Successfully parsed JSON on attempt {}", attempt);
+                return evaluations;
+
+            } catch (Exception e) {
+                log.warn("Parse attempt {} failed: {}", attempt, e.getMessage());
+
+                if (attempt == maxAttempts) {
+                    log.error("All {} JSON remediation attempts failed", maxAttempts);
+                    return null;
+                }
+
+                // Ask LLM to fix the JSON
+                log.info("Requesting JSON remediation from LLM (attempt {})", attempt + 1);
+                currentJson = requestJsonRemediation(chatClient, currentJson, e.getMessage(), expectedCount);
+
+                if (currentJson == null) {
+                    log.error("LLM failed to provide remediated JSON");
+                    return null;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Ask LLM to fix malformed JSON
+     *
+     * @param chatClient ChatClient for making requests
+     * @param malformedJson The malformed JSON string
+     * @param errorMessage The parsing error message
+     * @param expectedCount Expected number of array items
+     * @return Fixed JSON string, or null if remediation failed
+     */
+    private String requestJsonRemediation(
+            ChatClient chatClient,
+            String malformedJson,
+            String errorMessage,
+            int expectedCount) {
+
+        try {
+            StringBuilder remediationPrompt = new StringBuilder();
+            remediationPrompt.append("The following JSON has a syntax error and failed to parse.\n\n");
+            remediationPrompt.append("ERROR: ").append(errorMessage).append("\n\n");
+            remediationPrompt.append("MALFORMED JSON:\n");
+            remediationPrompt.append(malformedJson).append("\n\n");
+            remediationPrompt.append("REQUIREMENTS:\n");
+            remediationPrompt.append("1. Fix ALL JSON syntax errors\n");
+            remediationPrompt.append("2. Ensure it's a valid JSON array with exactly ").append(expectedCount).append(" objects\n");
+            remediationPrompt.append("3. Each object must have: index (number), score (number), reasoning (string)\n");
+            remediationPrompt.append("4. Remove trailing commas\n");
+            remediationPrompt.append("5. Ensure all strings are properly quoted\n");
+            remediationPrompt.append("6. Ensure all property names are in double quotes\n");
+            remediationPrompt.append("7. Do NOT change the content/meaning, only fix syntax\n\n");
+            remediationPrompt.append("Return ONLY the fixed JSON array, nothing else.\n");
+
+            String response = chatClient.prompt()
+                    .user(remediationPrompt.toString())
+                    .call()
+                    .content();
+
+            log.info("Received remediated JSON (length: {})", response.length());
+            return response;
+
+        } catch (Exception e) {
+            log.error("Failed to get JSON remediation from LLM: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -549,71 +877,46 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
     }
 
     /**
-     * Perform deeper, more focused search when initial candidates aren't suitable
+     * Gather additional knowledge when initial candidates aren't suitable
      */
-    private String performDeeperSearch(String topic, String additionalContext, List<String> existingAnswers) {
-        log.info("Performing deeper search to find more suitable answers");
+    private String performDeeperSearch(ChatClient chatClient, String topic, String additionalContext, List<String> existingAnswers) {
+        log.info("Gathering additional knowledge to find more suitable answers");
 
         try {
-            // STEP 1: Have LLM analyze WHY current answers don't meet the goal
-            StringBuilder analysisPrompt = new StringBuilder();
-            analysisPrompt.append("TASK: Analyze why our ADVANCED quiz bowl answers don't meet the goal. Remember to AVOID OBVIOUS concepts.\n\n");
-            analysisPrompt.append("TOPIC: ").append(topic).append("\n");
+            // Build a prompt to get more detailed, focused knowledge
+            StringBuilder promptBuilder = new StringBuilder();
+            promptBuilder.append("We need additional ADVANCED, NON-OBVIOUS information about: ").append(topic);
+
             if (additionalContext != null && !additionalContext.isEmpty()) {
-                analysisPrompt.append("GOAL/CONTEXT: ").append(additionalContext).append("\n");
+                promptBuilder.append("\n\nContext/Requirements: ").append(additionalContext);
             }
-            analysisPrompt.append("\nCURRENT ANSWERS WE HAVE:\n");
+
+            promptBuilder.append("\n\nWe already have information about:\n");
             if (existingAnswers.isEmpty()) {
-                analysisPrompt.append("(None yet - this is our first search)\n");
+                promptBuilder.append("(This is our first attempt)\n");
             } else {
                 for (String ans : existingAnswers) {
-                    analysisPrompt.append("- ").append(ans).append("\n");
+                    promptBuilder.append("- ").append(ans).append("\n");
                 }
             }
-            analysisPrompt.append("\nANALYZE (with emphasis on NON-OBVIOUS angles):\n");
-            analysisPrompt.append("1. What aspects of the goal/context are NOT adequately covered?\n");
-            analysisPrompt.append("2. What LESSER-KNOWN but quiz bowl-worthy answers would better fulfill requirements?\n");
-            analysisPrompt.append("3. What SPECIALIZED, TECHNICAL, or NICHE aspects should we explore?\n");
-            analysisPrompt.append("4. Are any current answers too obvious/famous? What deeper concepts could replace them?\n");
-            analysisPrompt.append("\n⚠️ Focus on finding challenging, non-obvious content that requires deep knowledge.\n");
-            analysisPrompt.append("\nProvide a brief analysis explaining what's missing and why we need to search deeper.");
 
-            String analysis = chatClient.prompt()
-                    .user(analysisPrompt.toString())
+            promptBuilder.append("\nProvide DIFFERENT, MORE SPECIFIC information focusing on:");
+            promptBuilder.append("\n- LESSER-KNOWN but notable and quiz bowl-worthy aspects");
+            promptBuilder.append("\n- Specialized, technical, or niche details");
+            promptBuilder.append("\n- Second and third-order concepts (not the main/obvious ones)");
+            promptBuilder.append("\n- Specific examples, works, events, or figures that are NOT the most famous");
+            promptBuilder.append("\n\n⚠️ CRITICAL: Avoid obvious, canonical, or textbook examples. Focus on depth and specificity.");
+
+            String deeperKnowledge = chatClient.prompt()
+                    .user(promptBuilder.toString())
                     .call()
-                    .content()
-                    .trim();
+                    .content();
 
-            log.info("LLM Analysis of gaps:\n{}", analysis);
-
-            // STEP 2: Generate smart search query based on the gap analysis
-            StringBuilder queryPrompt = new StringBuilder();
-            queryPrompt.append("Based on this analysis of what we're missing:\n\n");
-            queryPrompt.append(analysis).append("\n\n");
-            queryPrompt.append("Generate a HIGHLY SPECIFIC web search query to find NON-OBVIOUS information filling these gaps.\n");
-            queryPrompt.append("The search query should:\n");
-            queryPrompt.append("- Target exactly what's missing from our current answer set\n");
-            queryPrompt.append("- Find specialized, technical, or niche information\n");
-            queryPrompt.append("- AVOID directing to the most famous/canonical examples\n");
-            queryPrompt.append("- Look for lesser-known but quiz bowl-worthy content\n");
-            queryPrompt.append("\nReturn ONLY the search query text (no explanation).");
-
-            String searchQuery = chatClient.prompt()
-                    .user(queryPrompt.toString())
-                    .call()
-                    .content()
-                    .trim();
-
-            log.info("Generated targeted search query based on gaps: {}", searchQuery);
-
-            // STEP 3: Perform the deeper search
-            String deeperResults = performBrowserSearch(searchQuery, topic);
-
-            log.info("Deeper search completed, found {} chars of new information", deeperResults.length());
-            return deeperResults;
+            log.info("Gathered {} chars of additional knowledge", deeperKnowledge.length());
+            return deeperKnowledge;
 
         } catch (Exception e) {
-            log.error("Deeper search failed: {}", e.getMessage());
+            log.error("Failed to gather additional knowledge: {}", e.getMessage());
             return "";
         }
     }
@@ -621,8 +924,8 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
     /**
      * STEP 2: Generate a list of potential answers based on gathered facts.
      */
-    private List<String> generateAnswerList(String topic, String additionalContext, String factSources, int count) {
-        return generateAnswerList(topic, additionalContext, factSources, count, Collections.emptyList());
+    private List<String> generateAnswerList(ChatClient chatClient, String topic, String additionalContext, String factSources, int count) {
+        return generateAnswerList(chatClient, topic, additionalContext, factSources, count, Collections.emptyList());
     }
 
     /**
@@ -630,6 +933,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
      * Avoids answers in the exclusion list.
      */
     private List<String> generateAnswerList(
+            ChatClient chatClient,
             String topic,
             String additionalContext,
             String factSources,
@@ -742,7 +1046,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
     /**
      * STEP 3: Craft a pyramidal NAQT question for a specific answer.
      */
-    private Tossup craftQuestionForAnswer(String topic, String answer, String factSources, String additionalContext) {
+    private Tossup craftQuestionForAnswer(ChatClient chatClient, String topic, String answer, String factSources, String additionalContext) {
         log.info("Crafting question for answer: {}", answer);
 
         // Build prompt without String.format to avoid template parsing issues
@@ -901,67 +1205,12 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
         return result.toString();
     }
 
-    /**
-     * Search for second and third-order related concepts to ensure diversity
-     */
-    private String searchRelatedConcepts(String topic, String additionalContext, String existingKnowledge) {
-        log.info("Identifying second and third-order related concepts");
-
-        try {
-            // Ask LLM to identify related concepts that are 2-3 degrees away from the main topic
-            StringBuilder promptBuilder = new StringBuilder();
-            promptBuilder.append("Analyze this topic and identify LESSER-KNOWN second and third-order related concepts for ADVANCED quiz bowl questions.\n\n");
-            promptBuilder.append("Topic: ").append(topic).append("\n");
-            if (additionalContext != null && !additionalContext.isEmpty()) {
-                promptBuilder.append("Context: ").append(additionalContext).append("\n");
-            }
-            promptBuilder.append("\n");
-            promptBuilder.append("AVOID THE OBVIOUS:\n");
-            promptBuilder.append("- Do NOT suggest the most famous related figures, works, or events\n");
-            promptBuilder.append("- Do NOT suggest canonical textbook examples\n");
-            promptBuilder.append("- Do NOT suggest things a casual enthusiast would immediately think of\n");
-            promptBuilder.append("\n");
-            promptBuilder.append("INSTEAD, FOCUS ON:\n");
-            promptBuilder.append("- Second-order: Lesser-known but significant figures/works/events directly connected to the topic\n");
-            promptBuilder.append("- Third-order: Unexpected influences, niche specializations, technical aspects, or peripheral developments\n");
-            promptBuilder.append("- Look for interesting angles that require deeper knowledge\n");
-            promptBuilder.append("\n");
-            promptBuilder.append("Generate 2-3 search queries for NON-OBVIOUS second/third-order concepts.\n");
-            promptBuilder.append("These should be quiz bowl-worthy but not the first things someone would think of.\n");
-            promptBuilder.append("\n");
-            promptBuilder.append("Return as JSON array of search query strings.\n");
-
-            String response = chatClient.prompt()
-                    .user(promptBuilder.toString())
-                    .call()
-                    .content();
-
-            String json = extractJsonArray(response);
-            List<String> queries = objectMapper.readValue(json, new TypeReference<List<String>>() {});
-
-            StringBuilder relatedKnowledge = new StringBuilder();
-            int count = Math.min(queries.size(), 3); // Limit to 3 additional searches
-
-            for (int i = 0; i < count; i++) {
-                String query = queries.get(i);
-                log.info("Related concept search {}: {}", i + 1, query);
-                String results = performBrowserSearch(query, topic);
-                relatedKnowledge.append("Related Concept ").append(i + 1).append(": ").append(query).append("\n");
-                relatedKnowledge.append(results).append("\n\n");
-            }
-
-            return relatedKnowledge.toString();
-
-        } catch (Exception e) {
-            log.error("Failed to search related concepts: {}", e.getMessage());
-            return "";
-        }
-    }
 
     /**
      * Resolve cross-references and cycles by regenerating problematic questions
      */
     private List<Tossup> resolveCrossReferencesAndCycles(
+            ChatClient chatClient,
             List<Tossup> tossups,
             String topic,
             String additionalContext,
@@ -976,7 +1225,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             log.info("Cycle resolution attempt {} of {}", attempt, maxAttempts);
 
             // Analyze current state
-            List<QuestionReference> references = analyzeQuestionCrossReferences(workingTossups);
+            List<QuestionReference> references = analyzeQuestionCrossReferences(chatClient, workingTossups);
 
             // Check for cycles
             List<Integer> cyclicQuestions = findCyclicQuestions(references);
@@ -995,6 +1244,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             // Generate a new answer, avoiding all existing answers
             log.info("Generating replacement answer (avoiding {} existing answers)", workingAnswers.size());
             List<String> newAnswers = generateAnswerList(
+                    chatClient,
                     topic,
                     additionalContext,
                     factSources,
@@ -1011,7 +1261,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
             log.info("Generated new answer: {}", newAnswer);
 
             // Craft new question
-            Tossup newTossup = craftQuestionForAnswer(topic, newAnswer, factSources, additionalContext);
+            Tossup newTossup = craftQuestionForAnswer(chatClient, topic, newAnswer, factSources, additionalContext);
             log.info("Crafted new question for replacement answer");
 
             // Replace in working lists
@@ -1059,7 +1309,7 @@ public class WebSearchQuestionGenerationStrategy implements QuestionGenerationSt
     /**
      * Analyze all questions for cross-references to other answers
      */
-    private List<QuestionReference> analyzeQuestionCrossReferences(List<Tossup> tossups) {
+    private List<QuestionReference> analyzeQuestionCrossReferences(ChatClient chatClient, List<Tossup> tossups) {
         log.info("Analyzing questions for cross-references to other answers");
 
         List<QuestionReference> references = new ArrayList<>();

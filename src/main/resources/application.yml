@@ -4,6 +4,7 @@ server:
 sockbowl:
   ai:
     provider: "${SOCKBOWL_AI_PROVIDER:openai}"
+    require-user-api-key: "${SOCKBOWL_REQUIRE_USER_API_KEY:true}" # When true, users must provide their own API key via X-API-Key header
     packetgen:
       question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
       strategy: "${SOCKBOWL_QUESTION_STRATEGY:web-search}"

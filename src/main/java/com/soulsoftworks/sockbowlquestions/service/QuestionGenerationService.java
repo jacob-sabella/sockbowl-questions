@@ -2,6 +2,7 @@
 package com.soulsoftworks.sockbowlquestions.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.service.strategy.QuestionGenerationStrategy;
@@ -54,12 +55,15 @@ public class QuestionGenerationService {
      *
      * @param topic Topic for the packet
      * @param additionalContext Additional context or instructions
+     * @param questionCount Number of tossups/bonuses to generate (overrides default)
+     * @param generateBonuses Whether to generate bonuses (default true)
+     * @param requestContext Request context containing optional custom API key and model
      * @return Generated packet
      * @throws JsonProcessingException if JSON processing fails
      */
-    public Packet generatePacket(String topic, String additionalContext) throws JsonProcessingException {
-        log.info("Generating packet using strategy: {}", strategyName);
-        return activeStrategy.generatePacket(topic, additionalContext, questionCount);
+    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses, AiRequestContext requestContext) throws JsonProcessingException {
+        log.info("Generating packet using strategy: {} with {} questions (bonuses: {})", strategyName, questionCount, generateBonuses);
+        return activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses, requestContext);
     }
 
     /**
@@ -68,11 +72,12 @@ public class QuestionGenerationService {
      * @param topic Topic for the question
      * @param additionalContext Additional context or instructions
      * @param existingTossups Previously generated tossups to avoid duplicates
+     * @param requestContext Request context containing optional custom API key and model
      * @return Generated tossup
      */
-    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups) {
+    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups, AiRequestContext requestContext) {
         log.info("Generating tossup using strategy: {}", strategyName);
-        return activeStrategy.generateTossup(topic, additionalContext, existingTossups);
+        return activeStrategy.generateTossup(topic, additionalContext, existingTossups, requestContext);
     }
 
     /**

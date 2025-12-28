@@ -28,28 +28,10 @@ public class AiConfig {
     private String aiProvider;
 
     /**
-     * Creates and configures a ChatClient bean with appropriate advisors and system prompts
-     * for quizbowl question generation and question answering.
-     *
-     * @param chatClientBuilder Builder for creating the ChatClient
-     * @param vectorStore VectorStore for retrieving relevant context
-     * @param tools ToolCallbackProvider for AI tools integration
-     * @return Configured ChatClient instance
+     * System prompt for NAQT-style quizbowl question writing.
+     * Extracted as a public constant for reuse in ChatClientFactory.
      */
-    @Bean(name = "quizBowlQuestionWriterChatClient")
-    public ChatClient chatClient(
-            ChatClient.Builder chatClientBuilder,
-            ToolCallbackProvider tools) {
-
-        logger.info("Initializing ChatClient with AI provider: {}", aiProvider);
-        logger.info("ChatClient builder will use configured model from Spring AI autoconfiguration");
-        logger.info("Neo4j vector store disabled - using only web search and LLM knowledge");
-
-        logger.info("ChatClient configured with MCP tools for web search capabilities");
-
-        // Build and return the configured ChatClient (without vector store advisor)
-        return chatClientBuilder
-                .defaultSystem("""
+    public static final String SYSTEM_PROMPT = """
                         **Role:** You are an expert NAQT-style Quizbowl Question Writer. Your expertise lies in crafting high-quality, factually accurate, and stylistically compliant tossup questions for standard high school or collegiate difficulty levels.
 
                         **Core Task:** Generate individual tossup questions based on specific prompts, adhering strictly to NAQT standards.
@@ -119,7 +101,29 @@ public class AiConfig {
                         *   Construct the precise answer line.
                         *   Strictly avoid topics or answers provided in the "avoid list" context.
                         *   Prioritize novelty and avoid generating questions on overly common or canonical examples unless specifically requested.
-                        """)
+                        """;
+
+    /**
+     * Creates and configures a ChatClient bean with appropriate advisors and system prompts
+     * for quizbowl question generation and question answering.
+     *
+     * @param chatClientBuilder Builder for creating the ChatClient
+     * @param tools ToolCallbackProvider for AI tools integration
+     * @return Configured ChatClient instance
+     */
+    @Bean(name = "quizBowlQuestionWriterChatClient")
+    public ChatClient chatClient(
+            ChatClient.Builder chatClientBuilder,
+            ToolCallbackProvider tools) {
+
+        logger.info("Initializing ChatClient with AI provider: {}", aiProvider);
+        logger.info("ChatClient builder will use configured model from Spring AI autoconfiguration");
+        logger.info("Neo4j vector store disabled - using only web search and LLM knowledge");
+        logger.info("ChatClient configured with MCP tools for web search capabilities");
+
+        // Build and return the configured ChatClient (without vector store advisor)
+        return chatClientBuilder
+                .defaultSystem(SYSTEM_PROMPT)
                 .defaultTools(tools)
                 .build();
     }

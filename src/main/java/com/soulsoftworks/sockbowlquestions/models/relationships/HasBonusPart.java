@@ -19,4 +19,17 @@ public class HasBonusPart {
         this.bonusPart = bonusPart;
     }
 
+    // Getters
+    public Long getId() {
+        return id;
+    }
+
+    public Integer getOrder() {
+        return order;
+    }
+
+    public BonusPart getBonusPart() {
+        return bonusPart;
+    }
+
 }
