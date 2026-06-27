@@ -27,7 +27,8 @@ spring:
     ollama:
       chat:
         enabled: false
-        model: "deepseek-r1:70b"
+        options:
+          model: "deepseek-r1:70b"
       embedding:
         enabled: true
         options:

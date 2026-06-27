@@ -4,15 +4,10 @@ package com.soulsoftworks.sockbowlquestions.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.tool.ToolCallbackProvider;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.List;
 
 /**
  * Configuration class for AI-related components.
@@ -124,7 +119,7 @@ public class AiConfig {
         // Build and return the configured ChatClient (without vector store advisor)
         return chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultTools(tools)
+                .defaultToolCallbacks(tools.getToolCallbacks())
                 .build();
     }
 }

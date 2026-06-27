@@ -1,11 +1,11 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.5'
-	id 'io.spring.dependency-management' version '1.1.6'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
 	id 'maven-publish'
 }
 
-ext { springAiVersion = "1.0.0-M6" }
+ext { springAiVersion = "2.0.0" }
 
 group = 'com.soulsoftworks'
 version = resolveVersion()
@@ -22,23 +22,28 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-neo4j'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-graphql'
-	implementation 'com.google.code.gson:gson:2.13.1'
-	implementation 'org.springframework.ai:spring-ai-ollama-spring-boot-starter:1.0.0-M6'
-	implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter:1.0.0-M6'
-	implementation 'org.springframework.ai:spring-ai-neo4j-store-spring-boot-starter:1.0.0-M6'
-	implementation 'org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6'
-	implementation 'com.github.victools:jsonschema-generator:4.38.0'
+	implementation 'com.google.code.gson:gson:2.14.0'
+	implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
+	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+	implementation 'org.springframework.ai:spring-ai-starter-vector-store-neo4j'
+	implementation 'org.springframework.ai:spring-ai-starter-mcp-client'
+	implementation 'com.github.victools:jsonschema-generator:5.0.0'
 
-	compileOnly 'org.projectlombok:lombok:1.18.40'
-	annotationProcessor 'org.projectlombok:lombok:1.18.40'
-	testCompileOnly 'org.projectlombok:lombok:1.18.40'
-	testAnnotationProcessor 'org.projectlombok:lombok:1.18.40'
+	compileOnly 'org.projectlombok:lombok:1.18.46'
+	annotationProcessor 'org.projectlombok:lombok:1.18.46'
+	testCompileOnly 'org.projectlombok:lombok:1.18.46'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.46'
 
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
-tasks.named('test') { useJUnitPlatform() }
+tasks.named('test') {
+	useJUnitPlatform()
+	// The lone test class currently has no @Test methods; Gradle 9 fails the
+	// build when test sources exist but nothing is discovered. Allow it.
+	failOnNoDiscoveredTests = false
+}
 
 /* -------------------------- Models-only artifacts -------------------------- */
 tasks.register('modelsJar', Jar) {

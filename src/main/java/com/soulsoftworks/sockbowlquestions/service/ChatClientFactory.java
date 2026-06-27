@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -60,11 +59,12 @@ public class ChatClientFactory {
      * @return ChatClient configured with custom settings
      */
     private ChatClient createCustomChatClient(AiRequestContext context) {
-        // Create OpenAI API with custom key
-        OpenAiApi openAiApi = new OpenAiApi(openAiBaseUrl, context.getApiKey());
-
-        // Build chat options - only set parameters that are provided
+        // Build chat options - in Spring AI 2.0 the OpenAI connection details
+        // (API key + base URL) live on the chat options; the model lazily
+        // constructs an OpenAIClient from them when no explicit client is set.
         OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
+                .baseUrl(openAiBaseUrl)
+                .apiKey(context.getApiKey())
                 .model(context.getModel());
 
         // Only set optional parameters if they are provided
@@ -82,12 +82,14 @@ public class ChatClientFactory {
         }
 
         // Create chat model with custom options
-        OpenAiChatModel chatModel = new OpenAiChatModel(openAiApi, optionsBuilder.build());
+        OpenAiChatModel chatModel = OpenAiChatModel.builder()
+                .options(optionsBuilder.build())
+                .build();
 
         // Build ChatClient with same configuration as default
         return ChatClient.builder(chatModel)
                 .defaultSystem(AiConfig.SYSTEM_PROMPT)
-                .defaultTools(tools)
+                .defaultToolCallbacks(tools.getToolCallbacks())
                 .build();
     }
 }
