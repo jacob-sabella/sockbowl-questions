@@ -6,6 +6,92 @@ type Query {
   searchPacketsByName(name: String!): [Packet!]!
 }
 
+"""
+Authoring mutations backing the packet-builder UI. All mutations that affect a
+packet's contents return the affected Packet so the client can refresh; node-level
+edits return the affected node. Relationship order is kept dense and zero-based.
+"""
+type Mutation {
+  # --- Packet ---
+  createPacket(input: CreatePacketInput!): Packet!
+  renamePacket(id: ID!, name: String!): Packet!
+  setPacketDifficulty(id: ID!, difficultyId: ID!): Packet!
+  deletePacket(id: ID!): Boolean!
+
+  # --- Tossups (order is optional; null/oversized appends) ---
+  addTossupToPacket(packetId: ID!, input: TossupInput!, order: Int): Packet!
+  updateTossup(id: ID!, input: TossupInput!): Tossup!
+  removeTossupFromPacket(packetId: ID!, tossupId: ID!): Packet!
+  reorderTossup(packetId: ID!, tossupId: ID!, newOrder: Int!): Packet!
+
+  # --- Bonuses ---
+  addBonusToPacket(packetId: ID!, input: BonusInput!, order: Int): Packet!
+  updateBonus(id: ID!, input: BonusUpdateInput!): Bonus!
+  removeBonusFromPacket(packetId: ID!, bonusId: ID!): Packet!
+  reorderBonus(packetId: ID!, bonusId: ID!, newOrder: Int!): Packet!
+
+  # --- Bonus parts ---
+  addBonusPart(bonusId: ID!, input: BonusPartInput!, order: Int): Bonus!
+  updateBonusPart(bonusId: ID!, bonusPartId: ID!, input: BonusPartInput!): Bonus!
+  removeBonusPart(bonusId: ID!, bonusPartId: ID!): Bonus!
+  reorderBonusPart(bonusId: ID!, bonusPartId: ID!, newOrder: Int!): Bonus!
+
+  # --- Taxonomy ---
+  createDifficulty(name: String!): Difficulty!
+  createCategory(name: String!): Category!
+  createSubcategory(name: String!, categoryId: ID!): Subcategory!
+  setTossupSubcategory(tossupId: ID!, subcategoryId: ID!): Tossup!
+  setBonusSubcategory(bonusId: ID!, subcategoryId: ID!): Bonus!
+
+  # --- AI assist (reuses the existing generation service) ---
+  generateAndAddTossup(packetId: ID!, input: GenerateTossupInput!, order: Int): Packet!
+}
+
+"""Input for creating a packet. difficultyId is optional at creation time."""
+input CreatePacketInput {
+  name: String!
+  difficultyId: ID
+}
+
+"""Input for creating or updating a tossup. subcategoryId is optional."""
+input TossupInput {
+  question: String!
+  answer: String!
+  subcategoryId: ID
+}
+
+"""Input for creating a bonus, optionally with its initial parts in order."""
+input BonusInput {
+  preamble: String
+  subcategoryId: ID
+  parts: [BonusPartInput!]
+}
+
+"""Input for updating a bonus node's own fields (parts use the dedicated mutations)."""
+input BonusUpdateInput {
+  preamble: String
+  subcategoryId: ID
+}
+
+"""Input for a single bonus part (question/answer pair)."""
+input BonusPartInput {
+  question: String!
+  answer: String!
+}
+
+"""
+Input for AI-assisted tossup generation. apiKey/model mirror the X-API-Key /
+X-Model headers used by the REST generation endpoint and obey the same security
+rules.
+"""
+input GenerateTossupInput {
+  topic: String!
+  additionalContext: String
+  subcategoryId: ID
+  apiKey: String
+  model: String
+}
+
 
 """
 Event Node
