@@ -1,0 +1,20 @@
+{
+  "id": "817e5fd4",
+  "description": "Review and optimize the AI generation for packets. This is an old iteration without acocunting much for newer tech and could use an update.",
+  "status": "triaged",
+  "plan": {
+    "summary": "** Vague optimization request for AI packet generation — needs scoping before work begins; blocking on clarification.",
+    "assignee_role": "**",
+    "acceptance_criteria": [
+      "Engineer meets with ticket author to define what \"AI generation for packets\" refers to (specific module, model, pipeline) before touching any code",
+      "A short technical discovery doc is written identifying what the current implementation does, what \"newer tech\" means in concrete terms (new model? new library version? new prompting approach?), and what the measurable problem is (latency? quality? cost?)",
+      "Any actual optimization work is scoped into a follow-up ticket with specific, measurable targets (e.g. \"reduce generation time by X%\", \"update from model A to model B\", \"refactor prompt template to use structured outputs\")",
+      "No code changes are merged under this ticket — this ticket closes when the discovery doc exists and a child ticket is created"
+    ]
+  },
+  "pr_id": null,
+  "feature_branch": "main",
+  "klaus_branch": "klaus/817e5fd4",
+  "pipeline_name": "default",
+  "created_at": "2026-05-13T00:36:28Z"
+}

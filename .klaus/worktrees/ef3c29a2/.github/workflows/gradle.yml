@@ -1,0 +1,93 @@
+name: Java CI with Gradle and Docker
+
+on:
+  push:
+    branches:
+      - "main"
+      - "release/**"
+    tags:
+      - "v*"
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compute project version
+        id: ver
+        run: |
+          chmod +x gradlew
+          echo "VERSION=$(./gradlew -q printVersion)" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build models jars
+        run: ./gradlew -S clean modelsJar modelsSourcesJar
+
+      - name: Publish models to GitHub Packages (Maven)
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew -S publish
+
+      - name: Build Docker image with Spring Boot (pack)
+        run: ./gradlew bootBuildImage
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker Image
+        run: |
+          IMAGE_TAG="ghcr.io/${{ github.repository }}:${{ env.VERSION }}"
+          docker push "${IMAGE_TAG}"
+
+          # Also push as :main for main branch (without hash suffix)
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            MAIN_TAG="ghcr.io/${{ github.repository }}:main"
+            docker tag "${IMAGE_TAG}" "${MAIN_TAG}"
+            docker push "${MAIN_TAG}"
+            echo "Tagged and pushed as :main"
+          fi
+
+  dependency-submission:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+      - name: Generate and submit dependency graph
+        uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0

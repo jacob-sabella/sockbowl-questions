@@ -1,0 +1,22 @@
+{
+  "id": "ef3c29a2",
+  "description": "Review and optimize the AI generation for packets. This is an old iteration without acocunting much for newer tech and could use an update. \n\nUpdate the Spring Batch version and make sure we are setup for using Anthropic Claude via API in our generation. I also want to be using their API features as much as possible (like caching) to optimize cost.",
+  "status": "in_progress",
+  "plan": {
+    "summary": "Upgrade Spring Batch to current stable version and migrate packet AI generation to Anthropic Claude API with cost-optimization features enabled (primarily prompt caching).",
+    "assignee_role": "engineer",
+    "acceptance_criteria": [
+      "Spring Batch is upgraded to the latest stable version with no regressions in existing batch job behavior",
+      "Packet AI generation is wired to Anthropic Claude via their official API, replacing the existing generation mechanism",
+      "Anthropic prompt caching is implemented wherever eligible (system prompts, repeated context) and verified reducing token costs",
+      "Any other available Anthropic API cost/performance features (e.g. streaming if applicable, batching endpoints) are evaluated and adopted where they make sense",
+      "Existing packet generation output quality is validated against the prior implementation — no functional regression",
+      "Configuration (API keys, model version, cache settings) is externalized and documented, not hardcoded"
+    ]
+  },
+  "pr_id": null,
+  "feature_branch": "main",
+  "klaus_branch": "klaus/ef3c29a2",
+  "pipeline_name": "default",
+  "created_at": "2026-05-13T00:37:58Z"
+}

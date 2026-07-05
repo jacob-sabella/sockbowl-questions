@@ -1,0 +1,183 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.5.5'
+	id 'io.spring.dependency-management' version '1.1.6'
+	id 'maven-publish'
+}
+
+ext { springAiVersion = "1.0.0-M6" }
+
+group = 'com.soulsoftworks'
+version = resolveVersion()
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter'
+	implementation 'org.springframework.boot:spring-boot-starter-data-neo4j'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-graphql'
+	implementation 'com.google.code.gson:gson:2.13.1'
+	implementation 'org.springframework.ai:spring-ai-ollama-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-neo4j-store-spring-boot-starter:1.0.0-M6'
+	implementation 'org.springframework.ai:spring-ai-mcp-client-spring-boot-starter:1.0.0-M6'
+	implementation 'com.github.victools:jsonschema-generator:4.38.0'
+
+	compileOnly 'org.projectlombok:lombok:1.18.40'
+	annotationProcessor 'org.projectlombok:lombok:1.18.40'
+	testCompileOnly 'org.projectlombok:lombok:1.18.40'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.40'
+
+	runtimeOnly 'org.postgresql:postgresql'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') { useJUnitPlatform() }
+
+/* -------------------------- Models-only artifacts -------------------------- */
+tasks.register('modelsJar', Jar) {
+	group = 'build'
+	description = 'Jar containing only com.soulsoftworks.sockbowlquestions.models.* classes'
+	from sourceSets.main.output
+	include 'com/soulsoftworks/sockbowlquestions/models/**'
+	archiveBaseName = 'sockbowlquestions-models'
+}
+
+tasks.register('modelsSourcesJar', Jar) {
+	group = 'build'
+	description = 'Sources jar for the models-only artifact'
+	from sourceSets.main.allSource
+	include 'com/soulsoftworks/sockbowlquestions/models/**'
+	archiveBaseName = 'sockbowlquestions-models'
+	archiveClassifier = 'sources'
+}
+
+/* ------------------------------ Publishing --------------------------------- */
+publishing {
+	publications {
+		register("models", MavenPublication) {
+			groupId = project.group as String
+			artifactId = "sockbowlquestions-models"
+			version = project.version as String
+
+			artifact tasks.named("modelsJar").get()
+			artifact tasks.named("modelsSourcesJar").get()
+
+			pom {
+				name = "Sockbowl Questions Models"
+				description = "Models under com.soulsoftworks.sockbowlquestions.models"
+				url = "https://github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'}"
+				licenses {
+					license {
+						name = "Apache License, Version 2.0"
+						url = "https://www.apache.org/licenses/LICENSE-2.0"
+						distribution = "repo"
+					}
+				}
+				scm {
+					def repo = System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'
+					url = "https://github.com/${repo}"
+					connection = "scm:git:https://github.com/${repo}.git"
+					developerConnection = "scm:git:ssh://git@github.com/${repo}.git"
+				}
+				developers { developer { id = "jsabella"; name = "Jacob Sabella" } }
+			}
+		}
+	}
+	repositories {
+		// GitHub Packages (Maven)
+		maven {
+			name = "GitHubPackages"
+			url = uri("https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO'}")
+			credentials {
+				username = (System.getenv("GITHUB_ACTOR") ?: (project.findProperty("gpr.user") ?: "")) as String
+				password = (System.getenv("GITHUB_TOKEN") ?: (project.findProperty("gpr.key") ?: "")) as String
+			}
+		}
+	}
+}
+
+/* ----------------------------- Spring Boot image --------------------------- */
+bootBuildImage {
+	createdDate = "now"
+	def repo = (System.getenv('GITHUB_REPOSITORY') ?: 'OWNER/REPO')
+	imageName = "ghcr.io/${repo}:${project.version}"
+}
+
+/* ---------------------------- Dependency management ------------------------ */
+dependencyManagement {
+	imports { mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion" }
+}
+
+/* ------------------------------- Utilities -------------------------------- */
+tasks.register('printVersion') {
+	group = 'help'
+	description = 'Prints the current project version'
+	doLast { println project.version }
+}
+
+static String resolveVersion() {
+	// GitHub Actions refs look like:
+	//  - refs/heads/feature/foo        (branch)
+	//  - refs/tags/v1.2.3              (tag)
+	//  - PRs: GITHUB_HEAD_REF is the source branch name
+	String gitRef      = System.getenv('GITHUB_REF')
+	String refName     = System.getenv('GITHUB_REF_NAME')   // branch or tag name for the current ref
+	String headRef     = System.getenv('GITHUB_HEAD_REF')   // PR source branch
+	String branchName  = null
+	String releasePrefix = System.getenv('RELEASE_BRANCH_PREFIX') ?: 'release/'
+
+	boolean isTagBuild    = (gitRef != null && gitRef.startsWith('refs/tags/'))
+	boolean isBranchBuild = (gitRef != null && gitRef.startsWith('refs/heads/'))
+
+	if (isTagBuild) {
+		// vX.Y.Z -> X.Y.Z ; X.Y.Z -> X.Y.Z
+		return stripLeadingV(refName)
+	}
+
+	// Determine branch name (CI or local)
+	if (isBranchBuild) {
+		branchName = refName
+	} else if (headRef) {
+		branchName = headRef
+	} else {
+		branchName = execAndRead("git rev-parse --abbrev-ref HEAD")
+	}
+	if (!branchName) branchName = "detached"
+
+	if (branchName.startsWith(releasePrefix)) {
+		// release/0.0.2 -> 0.0.2
+		String ver = branchName.substring(releasePrefix.length())
+		return ver ?: "0.0.0"
+	}
+
+	// Any other branch: sanitized branch name + short commit SHA for uniqueness
+	String shortSha = execAndRead("git rev-parse --short=7 HEAD") ?: "local"
+	return "${sanitizeBranch(branchName)}-${shortSha}"
+}
+
+static String stripLeadingV(String tag) {
+	if (tag == null) return "0.0.0"
+	return tag.startsWith("v") ? tag.substring(1) : tag
+}
+
+static String sanitizeBranch(String name) {
+	// Lowercase; keep [a-z0-9._-]; convert others (including '/') to '-'
+	return (name ?: "dev").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "-")
+}
+
+static String execAndRead(String cmd) {
+	try {
+		def p = cmd.execute()
+		p.waitFor()
+		return p.exitValue() == 0 ? p.text.trim() : null
+	} catch (Exception ignored) {
+		return null
+	}
+}
