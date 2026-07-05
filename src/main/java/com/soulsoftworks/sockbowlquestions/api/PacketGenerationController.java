@@ -112,8 +112,11 @@ public class PacketGenerationController {
 
             return ResponseEntity.ok(new Gson().toJson(generatedPacket));
         } catch (Exception e) {
+            // Log the detail server-side; return a generic message so internal
+            // exception text (stack details, upstream API errors) isn't leaked.
             logger.error("Error generating packet", e);
-            return ResponseEntity.internalServerError().body("Error generating packet: " + e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Error generating packet. Please try again or check the server logs.");
         }
     }
 

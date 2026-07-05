@@ -48,8 +48,3 @@ spring:
         database-name: neo4j
         index-name: custom-index
         embedding-dimension: 1024 # Ollama nomic-embed-text dimensions
-logging:
-  level:
-    org:
-      hibernate:
-        SQL: DEBUG

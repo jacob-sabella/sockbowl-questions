@@ -33,7 +33,6 @@ dependencies {
 	testCompileOnly 'org.projectlombok:lombok:1.18.46'
 	testAnnotationProcessor 'org.projectlombok:lombok:1.18.46'
 
-	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
