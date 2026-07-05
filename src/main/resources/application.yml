@@ -2,6 +2,9 @@ server:
   port: "${SOCKBOWL_PORT:7009}"
 
 sockbowl:
+  cors:
+    # Comma-separated allowlist; wired to SOCKBOWL_ALLOWED_ORIGINS in compose.
+    allowed-origins: "${SOCKBOWL_ALLOWED_ORIGINS:http://localhost,http://localhost:80}"
   ai:
     provider: "${SOCKBOWL_AI_PROVIDER:openai}"
     require-user-api-key: "${SOCKBOWL_REQUIRE_USER_API_KEY:true}" # When true, users must provide their own API key via X-API-Key header
