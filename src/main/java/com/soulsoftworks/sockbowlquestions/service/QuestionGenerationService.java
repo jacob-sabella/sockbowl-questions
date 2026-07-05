@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Main service for question generation.
@@ -22,32 +21,19 @@ import java.util.Map;
 @Slf4j
 public class QuestionGenerationService {
 
-    private final Map<String, QuestionGenerationStrategy> strategies;
     private final QuestionGenerationStrategy activeStrategy;
+    private final String strategyName;
 
     @Value("${sockbowl.ai.packetgen.question-count:5}")
     private int questionCount;
 
-    @Value("${sockbowl.ai.packetgen.strategy:default}")
-    private String strategyName;
-
     public QuestionGenerationService(
-            @Qualifier("defaultStrategy") QuestionGenerationStrategy defaultStrategy,
-            @Qualifier("webSearchStrategy") QuestionGenerationStrategy webSearchStrategy,
-            @Value("${sockbowl.ai.packetgen.strategy:default}") String configuredStrategy) {
-
-        // Store all available strategies
-        this.strategies = Map.of(
-                "default", defaultStrategy,
-                "web-search", webSearchStrategy
-        );
-
-        // Select the active strategy based on configuration
-        this.activeStrategy = strategies.getOrDefault(configuredStrategy, defaultStrategy);
-        this.strategyName = configuredStrategy;
+            @Qualifier("defaultStrategy") QuestionGenerationStrategy defaultStrategy) {
+        this.activeStrategy = defaultStrategy;
+        this.strategyName = defaultStrategy.getStrategyName();
 
         log.info("QuestionGenerationService initialized with strategy: {} ({})",
-                configuredStrategy, activeStrategy.getClass().getSimpleName());
+                strategyName, activeStrategy.getClass().getSimpleName());
     }
 
     /**
