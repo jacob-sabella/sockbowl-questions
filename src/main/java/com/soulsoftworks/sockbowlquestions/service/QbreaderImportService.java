@@ -1,21 +1,11 @@
 package com.soulsoftworks.sockbowlquestions.service;
 
-import com.soulsoftworks.sockbowlquestions.api.input.BonusInput;
-import com.soulsoftworks.sockbowlquestions.api.input.BonusPartInput;
-import com.soulsoftworks.sockbowlquestions.api.input.CreatePacketInput;
-import com.soulsoftworks.sockbowlquestions.api.input.TossupInput;
 import com.soulsoftworks.sockbowlquestions.client.QbreaderClient;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbBonus;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbPacketResponse;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbTossup;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
-import com.soulsoftworks.sockbowlquestions.repository.CategoryRepository;
-import com.soulsoftworks.sockbowlquestions.repository.DifficultyRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
-import com.soulsoftworks.sockbowlquestions.repository.SubcategoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -24,15 +14,16 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Turns qbreader.org content into native sockbowl {@link Packet}s.
  *
- * <p>This is a thin adapter over {@link PacketAuthoringService}: it fetches from
- * {@link QbreaderClient}, find-or-creates the Category/Subcategory/Difficulty
- * nodes each question references, then delegates all persistence and ordering to
- * the authoring service (calling the service layer directly, so the GraphQL
- * layer's {@code @PreAuthorize} gates do not apply to internal imports).
+ * <p>Fetches from {@link QbreaderClient}, shapes the questions into plain maps,
+ * and persists the entire packet — difficulty, tossups, bonuses, bonus parts,
+ * and the taxonomy each references — in a single Cypher write via
+ * {@link PacketRepository#batchCreatePacket}. This replaces ~40 sequential
+ * authoring calls with one round trip.
  */
 @Service
 public class QbreaderImportService {
@@ -40,30 +31,16 @@ public class QbreaderImportService {
     private static final Logger log = LoggerFactory.getLogger(QbreaderImportService.class);
 
     private final QbreaderClient qbreader;
-    private final PacketAuthoringService authoring;
     private final PacketRepository packetRepository;
-    private final CategoryRepository categoryRepository;
-    private final SubcategoryRepository subcategoryRepository;
-    private final DifficultyRepository difficultyRepository;
 
-    public QbreaderImportService(QbreaderClient qbreader,
-                                 PacketAuthoringService authoring,
-                                 PacketRepository packetRepository,
-                                 CategoryRepository categoryRepository,
-                                 SubcategoryRepository subcategoryRepository,
-                                 DifficultyRepository difficultyRepository) {
+    public QbreaderImportService(QbreaderClient qbreader, PacketRepository packetRepository) {
         this.qbreader = qbreader;
-        this.authoring = authoring;
         this.packetRepository = packetRepository;
-        this.categoryRepository = categoryRepository;
-        this.subcategoryRepository = subcategoryRepository;
-        this.difficultyRepository = difficultyRepository;
     }
 
     /**
      * Import one published packet from a qbreader set. Idempotent: re-importing
-     * the same set/packet returns the already-imported Packet instead of
-     * creating a duplicate.
+     * the same set/packet returns the already-imported Packet.
      */
     public Packet importPacket(String setName, int packetNumber) {
         String packetName = setName + " — Packet " + packetNumber;
@@ -79,8 +56,7 @@ public class QbreaderImportService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "qbreader returned no questions for '" + setName + "' packet " + packetNumber);
         }
-        Integer diff = qb.tossups().get(0).difficulty();
-        return assemble(packetName, diff, qb.tossups(), qb.bonuses());
+        return assemble(packetName, firstDifficulty(qb.tossups()), qb.tossups(), qb.bonuses());
     }
 
     /**
@@ -98,9 +74,9 @@ public class QbreaderImportService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "qbreader returned no tossups for the requested filters");
         }
-        String packetName = (name == null || name.isBlank())
-                ? "Custom qbreader packet" : name.trim();
-        Integer diff = difficulties == null || difficulties.isEmpty() ? tossups.get(0).difficulty() : difficulties.get(0);
+        String packetName = (name == null || name.isBlank()) ? "Custom qbreader packet" : name.trim();
+        Integer diff = (difficulties == null || difficulties.isEmpty())
+                ? firstDifficulty(tossups) : difficulties.get(0);
         return assemble(uniqueName(packetName), diff, tossups, bonuses);
     }
 
@@ -108,35 +84,48 @@ public class QbreaderImportService {
 
     private Packet assemble(String packetName, Integer packetDifficulty,
                             List<QbTossup> tossups, List<QbBonus> bonuses) {
-        Difficulty difficulty = findOrCreateDifficulty(difficultyLabel(packetDifficulty));
-        Packet packet = authoring.createPacket(new CreatePacketInput(packetName, difficulty.getId()));
-
+        List<Map<String, Object>> tossupRows = new ArrayList<>();
         int order = 0;
         for (QbTossup t : tossups) {
-            Subcategory sub = findOrCreateSubcategory(t.category(), t.subcategory());
-            packet = authoring.addTossupToPacket(packet.getId(),
-                    new TossupInput(clean(t.question()), clean(t.answer()), sub.getId()), order++);
+            String category = blankTo(t.category(), "Miscellaneous");
+            tossupRows.add(Map.of(
+                    "question", clean(t.question()),
+                    "answer", clean(t.answer()),
+                    "category", category,
+                    "subcategory", blankTo(t.subcategory(), category),
+                    "order", order++));
         }
 
+        List<Map<String, Object>> bonusRows = new ArrayList<>();
         order = 0;
         if (bonuses != null) {
             for (QbBonus b : bonuses) {
                 if (b.parts() == null || b.parts().isEmpty()) {
                     continue;
                 }
-                Subcategory sub = findOrCreateSubcategory(b.category(), b.subcategory());
-                List<BonusPartInput> parts = new ArrayList<>();
+                String category = blankTo(b.category(), "Miscellaneous");
+                List<Map<String, Object>> parts = new ArrayList<>();
                 for (int i = 0; i < b.parts().size(); i++) {
                     String answer = (b.answers() != null && i < b.answers().size()) ? b.answers().get(i) : "";
-                    parts.add(new BonusPartInput(clean(b.parts().get(i)), clean(answer)));
+                    parts.add(Map.of(
+                            "question", clean(b.parts().get(i)),
+                            "answer", clean(answer),
+                            "order", i));
                 }
-                packet = authoring.addBonusToPacket(packet.getId(),
-                        new BonusInput(clean(b.leadin()), sub.getId(), parts), order++);
+                bonusRows.add(Map.of(
+                        "preamble", clean(b.leadin()),
+                        "category", category,
+                        "subcategory", blankTo(b.subcategory(), category),
+                        "order", order++,
+                        "parts", parts));
             }
         }
+
+        String id = packetRepository.batchCreatePacket(
+                packetName, difficultyLabel(packetDifficulty), tossupRows, bonusRows);
         log.info("Imported qbreader packet '{}' (id={}, {} tossups, {} bonuses)",
-                packetName, packet.getId(), tossups.size(), bonuses == null ? 0 : bonuses.size());
-        return packet;
+                packetName, id, tossupRows.size(), bonusRows.size());
+        return Packet.builder().id(id).name(packetName).build();
     }
 
     private Packet findByExactName(String name) {
@@ -159,23 +148,8 @@ public class QbreaderImportService {
         return base + " (" + System.identityHashCode(base) + ")";
     }
 
-    private Category findOrCreateCategory(String name) {
-        String catName = blankTo(name, "Miscellaneous");
-        return categoryRepository.findByName(catName)
-                .orElseGet(() -> authoring.createCategory(catName));
-    }
-
-    private Subcategory findOrCreateSubcategory(String categoryName, String subcategoryName) {
-        String catName = blankTo(categoryName, "Miscellaneous");
-        String subName = blankTo(subcategoryName, catName);
-        Category category = findOrCreateCategory(catName);
-        return subcategoryRepository.findByNameAndCategoryName(subName, catName)
-                .orElseGet(() -> authoring.createSubcategory(subName, category.getId()));
-    }
-
-    private Difficulty findOrCreateDifficulty(String label) {
-        return difficultyRepository.findByName(label)
-                .orElseGet(() -> authoring.createDifficulty(label));
+    private static Integer firstDifficulty(List<QbTossup> tossups) {
+        return tossups.isEmpty() ? null : tossups.get(0).difficulty();
     }
 
     /** Maps qbreader's 1-10 difficulty scale to a human-readable sockbowl difficulty. */
