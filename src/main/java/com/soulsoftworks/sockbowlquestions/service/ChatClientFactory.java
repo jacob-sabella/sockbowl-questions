@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -21,16 +20,13 @@ public class ChatClientFactory {
     private static final Logger logger = LoggerFactory.getLogger(ChatClientFactory.class);
 
     private final ChatClient defaultChatClient;
-    private final ToolCallbackProvider tools;
 
     @Value("${spring.ai.openai.base-url:https://api.openai.com}")
     private String openAiBaseUrl;
 
     public ChatClientFactory(
-            @Qualifier("quizBowlQuestionWriterChatClient") ChatClient defaultChatClient,
-            ToolCallbackProvider tools) {
+            @Qualifier("quizBowlQuestionWriterChatClient") ChatClient defaultChatClient) {
         this.defaultChatClient = defaultChatClient;
-        this.tools = tools;
     }
 
     /**
@@ -89,7 +85,6 @@ public class ChatClientFactory {
         // Build ChatClient with same configuration as default
         return ChatClient.builder(chatModel)
                 .defaultSystem(AiConfig.SYSTEM_PROMPT)
-                .defaultToolCallbacks(tools.getToolCallbacks())
                 .build();
     }
 }

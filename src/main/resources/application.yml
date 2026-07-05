@@ -7,8 +7,6 @@ sockbowl:
     require-user-api-key: "${SOCKBOWL_REQUIRE_USER_API_KEY:true}" # When true, users must provide their own API key via X-API-Key header
     packetgen:
       question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
-      strategy: "${SOCKBOWL_QUESTION_STRATEGY:web-search}"
-      candidate-multiplier: "${SOCKBOWL_CANDIDATE_MULTIPLIER:3}" # Generate X times more candidates than needed for selection
 
 spring:
   mvc:
@@ -33,15 +31,6 @@ spring:
         enabled: true
         options:
           model: "mxbai-embed-large" # 1024 dimensions
-    mcp:
-      client:
-        enabled: true
-        servers:
-          browser:
-            command: npx
-            args:
-              - "-y"
-              - "@browsermcp/mcp-server-browser"
   neo4j:
     uri: "${SOCKBOWL_NEO4J_URL:bolt://localhost:7687}"
     authentication:
