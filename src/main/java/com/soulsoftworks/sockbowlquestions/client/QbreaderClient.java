@@ -4,9 +4,12 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbPacketResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -25,7 +28,17 @@ public class QbreaderClient {
     public QbreaderClient(
             @Value("${sockbowl.qbreader.base-url:https://www.qbreader.org/api}") String baseUrl,
             @Value("${sockbowl.qbreader.user-agent:sockbowl/1.0 (+https://sockbowl.com; quizbowl app)}") String userAgent) {
+        // Use the JDK HttpClient rather than the classpath-default reactor-netty
+        // factory: reactor-netty allocates responses into direct (off-heap)
+        // buffers, and this container caps direct memory very low (~10MB), so
+        // reading qbreader payloads there triggers OutOfMemoryError. The JDK
+        // client reads into heap and is well within limits for these payloads.
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+        requestFactory.setReadTimeout(Duration.ofSeconds(30));
+
         this.http = RestClient.builder()
+                .requestFactory(requestFactory)
                 .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.USER_AGENT, userAgent)
                 .build();
