@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -53,6 +54,7 @@ public class PacketGenerationController {
      * @return ResponseEntity containing the generated packet as text
      */
     @GetMapping(path = "generate", produces = MediaType.TEXT_PLAIN_VALUE)
+    @PreAuthorize("hasAuthority('question:generate')")
     public ResponseEntity<String> generatePacket(
             @RequestParam String topic,
             @RequestParam(required = false) String additionalContext,

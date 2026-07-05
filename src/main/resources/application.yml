@@ -2,6 +2,8 @@ server:
   port: "${SOCKBOWL_PORT:7009}"
 
 sockbowl:
+  auth:
+    enabled: "${SOCKBOWL_AUTH_ENABLED:false}"
   cors:
     # Comma-separated allowlist; wired to SOCKBOWL_ALLOWED_ORIGINS in compose.
     allowed-origins: "${SOCKBOWL_ALLOWED_ORIGINS:http://localhost,http://localhost:80}"
@@ -12,6 +14,11 @@ sockbowl:
       question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
 
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/sockbowl}"
   mvc:
     async:
       request-timeout: 600000

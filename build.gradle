@@ -27,6 +27,8 @@ dependencies {
 	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
 	implementation 'org.springframework.ai:spring-ai-starter-vector-store-neo4j'
 	implementation 'com.github.victools:jsonschema-generator:5.0.0'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
 
 	compileOnly 'org.projectlombok:lombok:1.18.46'
 	annotationProcessor 'org.projectlombok:lombok:1.18.46'
@@ -34,6 +36,8 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok:1.18.46'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
+	testImplementation 'org.springframework.security:spring-security-test'
 }
 
 tasks.named('test') {
