@@ -23,6 +23,8 @@ public class Bonus {
     @GeneratedValue(generatorClass = UUIDStringGenerator.class)
     private String id;
     private String preamble;
+    /** Source question id from the origin (e.g. qbreader _id); null for authored content. */
+    private String remoteId;
 
     @Relationship(type = "SUBCATEGORY_IS", direction = Relationship.Direction.INCOMING)
     private Subcategory subcategory;

@@ -1,16 +1,13 @@
 package com.soulsoftworks.sockbowlquestions.client.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
-/**
- * A bonus as returned by the qbreader.org API. {@code parts} and {@code answers}
- * are parallel arrays (parts[i] is answered by answers[i]); qbreader's leadin maps
- * to sockbowl's bonus preamble.
- */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record QbBonus(
+        @JsonProperty("_id") String remoteId,
         String leadin,
         List<String> parts,
         List<String> answers,

@@ -22,6 +22,8 @@ public class Tossup {
     private String id;
     private String question;
     private String answer;
+    /** Source question id from the origin (e.g. qbreader _id); null for authored content. */
+    private String remoteId;
 
     @Relationship(type = "SUBCATEGORY_IS", direction = Relationship.Direction.OUTGOING)
     private Subcategory subcategory;

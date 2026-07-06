@@ -3,6 +3,7 @@ package com.soulsoftworks.sockbowlquestions.service;
 import com.soulsoftworks.sockbowlquestions.client.QbreaderClient;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbBonus;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbPacketResponse;
+import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbTossup;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
@@ -13,8 +14,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Turns qbreader.org content into native sockbowl {@link Packet}s.
@@ -42,13 +48,13 @@ public class QbreaderImportService {
      * Import one published packet from a qbreader set. Idempotent: re-importing
      * the same set/packet returns the already-imported Packet.
      */
-    public Packet importPacket(String setName, int packetNumber) {
+    public ImportOutcome importPacket(String setName, int packetNumber) {
         String packetName = setName + " — Packet " + packetNumber;
 
         Packet existing = findByExactName(packetName);
         if (existing != null) {
             log.info("qbreader packet '{}' already imported (id={}), returning existing", packetName, existing.getId());
-            return existing;
+            return new ImportOutcome(existing, List.of());
         }
 
         QbPacketResponse qb = qbreader.packet(setName, packetNumber);
@@ -56,28 +62,104 @@ public class QbreaderImportService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "qbreader returned no questions for '" + setName + "' packet " + packetNumber);
         }
-        return assemble(packetName, firstDifficulty(qb.tossups()), qb.tossups(), qb.bonuses());
+        Packet packet = assemble(packetName, firstDifficulty(qb.tossups()), qb.tossups(), qb.bonuses());
+        return new ImportOutcome(packet, collectRemoteIds(qb.tossups(), qb.bonuses()));
     }
 
     /**
      * Build a fresh packet from random qbreader questions matching the given
-     * filters. categories are qbreader category names; difficulties are the
-     * qbreader 1-10 scale.
+     * filters, avoiding any question whose qbreader id is in {@code excludeRemoteIds}
+     * (over-fetches a buffer then filters, so repeats are rare rather than impossible).
+     *
+     * @return the created packet plus the qbreader ids of the questions actually used,
+     *         so the caller can record them against a user for future de-duplication.
      */
-    public Packet importRandomPacket(List<String> categories, List<Integer> difficulties,
-                                     int tossupCount, int bonusCount, String name) {
-        QbPacketResponse tos = qbreader.randomTossups(categories, difficulties, Math.max(1, tossupCount));
-        QbPacketResponse bon = qbreader.randomBonuses(categories, difficulties, Math.max(0, bonusCount));
-        List<QbTossup> tossups = tos == null ? List.of() : tos.tossups();
-        List<QbBonus> bonuses = bon == null ? List.of() : bon.bonuses();
-        if (tossups == null || tossups.isEmpty()) {
+    public ImportOutcome importRandomPacket(QbRandomFilter filter, int tossupCount, int bonusCount,
+                                            String name, Collection<String> excludeRemoteIds) {
+        Set<String> exclude = excludeRemoteIds == null ? Set.of() : new HashSet<>(excludeRemoteIds);
+
+        List<QbTossup> tossups = fetchFreshTossups(filter, Math.max(1, tossupCount), exclude);
+        List<QbBonus> bonuses = fetchFreshBonuses(filter, Math.max(0, bonusCount), exclude);
+        if (tossups.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "qbreader returned no tossups for the requested filters");
         }
+
         String packetName = (name == null || name.isBlank()) ? "Custom qbreader packet" : name.trim();
-        Integer diff = (difficulties == null || difficulties.isEmpty())
-                ? firstDifficulty(tossups) : difficulties.get(0);
-        return assemble(uniqueName(packetName), diff, tossups, bonuses);
+        Integer diff = (filter == null || filter.difficulties() == null || filter.difficulties().isEmpty())
+                ? firstDifficulty(tossups) : filter.difficulties().get(0);
+        Packet packet = assemble(uniqueName(packetName), diff, tossups, bonuses);
+        return new ImportOutcome(packet, collectRemoteIds(tossups, bonuses));
+    }
+
+    /** A completed import: the packet and the qbreader ids of the questions it used. */
+    public record ImportOutcome(Packet packet, List<String> usedRemoteIds) {}
+
+    /* -------------------- random fetch + de-dupe ------------------------- */
+
+    /** Over-fetch a buffer proportional to the exclusion set, then take the first N fresh, distinct tossups. */
+    private List<QbTossup> fetchFreshTossups(QbRandomFilter filter, int count, Set<String> exclude) {
+        if (count <= 0) {
+            return List.of();
+        }
+        int fetch = Math.min(count + Math.min(exclude.size(), 30) + 5, 60);
+        QbPacketResponse resp = qbreader.randomTossups(filter, fetch);
+        List<QbTossup> all = (resp == null || resp.tossups() == null) ? List.of() : resp.tossups();
+        List<QbTossup> fresh = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (QbTossup t : all) {
+            String rid = t.remoteId();
+            if (rid != null && (exclude.contains(rid) || !seen.add(rid))) {
+                continue;
+            }
+            fresh.add(t);
+            if (fresh.size() >= count) {
+                break;
+            }
+        }
+        return fresh;
+    }
+
+    private List<QbBonus> fetchFreshBonuses(QbRandomFilter filter, int count, Set<String> exclude) {
+        if (count <= 0) {
+            return List.of();
+        }
+        int fetch = Math.min(count + Math.min(exclude.size(), 30) + 5, 60);
+        QbPacketResponse resp = qbreader.randomBonuses(filter, fetch);
+        List<QbBonus> all = (resp == null || resp.bonuses() == null) ? List.of() : resp.bonuses();
+        List<QbBonus> fresh = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (QbBonus b : all) {
+            String rid = b.remoteId();
+            if (rid != null && (exclude.contains(rid) || !seen.add(rid))) {
+                continue;
+            }
+            fresh.add(b);
+            if (fresh.size() >= count) {
+                break;
+            }
+        }
+        return fresh;
+    }
+
+    /** The distinct, non-null qbreader ids across the given tossups and bonuses. */
+    private static List<String> collectRemoteIds(List<QbTossup> tossups, List<QbBonus> bonuses) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (tossups != null) {
+            for (QbTossup t : tossups) {
+                if (t.remoteId() != null && !t.remoteId().isBlank()) {
+                    ids.add(t.remoteId());
+                }
+            }
+        }
+        if (bonuses != null) {
+            for (QbBonus b : bonuses) {
+                if (b.remoteId() != null && !b.remoteId().isBlank()) {
+                    ids.add(b.remoteId());
+                }
+            }
+        }
+        return new ArrayList<>(ids);
     }
 
     /* -------------------------------------------------------------------- */
@@ -93,6 +175,7 @@ public class QbreaderImportService {
                     "answer", clean(t.answer()),
                     "category", category,
                     "subcategory", blankTo(t.subcategory(), category),
+                    "remoteId", clean(t.remoteId()),
                     "order", order++));
         }
 
@@ -116,6 +199,7 @@ public class QbreaderImportService {
                         "preamble", clean(b.leadin()),
                         "category", category,
                         "subcategory", blankTo(b.subcategory(), category),
+                        "remoteId", clean(b.remoteId()),
                         "order", order++,
                         "parts", parts));
             }

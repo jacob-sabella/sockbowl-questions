@@ -16,6 +16,9 @@
         "preamble" : {
           "type" : "string"
         },
+        "remoteId" : {
+          "type" : "string"
+        },
         "subcategory" : {
           "$ref" : "#/$defs/Subcategory"
         }
@@ -123,6 +126,9 @@
           "type" : "string"
         },
         "question" : {
+          "type" : "string"
+        },
+        "remoteId" : {
           "type" : "string"
         },
         "subcategory" : {

@@ -1,8 +1,9 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
 import com.soulsoftworks.sockbowlquestions.client.QbreaderClient;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
+import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -45,26 +46,46 @@ public class QbreaderController {
     /** Import one published packet from a set. */
     @PostMapping("/import")
     public ImportResult importPacket(@RequestBody ImportRequest request) {
-        Packet packet = importService.importPacket(request.setName(), request.packetNumber());
-        return new ImportResult(packet.getId(), packet.getName());
+        ImportOutcome outcome = importService.importPacket(request.setName(), request.packetNumber());
+        return ImportResult.from(outcome);
     }
 
-    /** Assemble and import a random packet matching the given filters. */
+    /**
+     * Assemble and import a random packet matching the given filters, optionally
+     * excluding questions the caller has already seen (their qbreader ids). Returns
+     * the qbreader ids actually used so the caller can record them per user.
+     */
     @PostMapping("/import-random")
     public ImportResult importRandom(@RequestBody RandomRequest request) {
-        Packet packet = importService.importRandomPacket(
+        QbRandomFilter filter = new QbRandomFilter(
                 request.categories(),
+                request.subcategories(),
                 request.difficulties(),
+                request.minYear(),
+                request.maxYear(),
+                request.standardOnly());
+        ImportOutcome outcome = importService.importRandomPacket(
+                filter,
                 request.tossupCount() == null ? 20 : request.tossupCount(),
                 request.bonusCount() == null ? 20 : request.bonusCount(),
-                request.name());
-        return new ImportResult(packet.getId(), packet.getName());
+                request.name(),
+                request.excludeRemoteIds());
+        return ImportResult.from(outcome);
     }
 
     public record ImportRequest(String setName, Integer packetNumber) {}
 
-    public record RandomRequest(List<String> categories, List<Integer> difficulties,
-                                Integer tossupCount, Integer bonusCount, String name) {}
+    /**
+     * @param excludeRemoteIds qbreader ids to avoid (already seen by this user)
+     */
+    public record RandomRequest(List<String> categories, List<String> subcategories,
+                                List<Integer> difficulties, Integer minYear, Integer maxYear,
+                                Boolean standardOnly, Integer tossupCount, Integer bonusCount,
+                                String name, List<String> excludeRemoteIds) {}
 
-    public record ImportResult(String id, String name) {}
+    public record ImportResult(String id, String name, List<String> usedRemoteIds) {
+        static ImportResult from(ImportOutcome o) {
+            return new ImportResult(o.packet().getId(), o.packet().getName(), o.usedRemoteIds());
+        }
+    }
 }

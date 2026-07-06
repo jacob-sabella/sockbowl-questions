@@ -42,7 +42,7 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
                   ON CREATE SET cat.id = randomUUID()
                 MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {name: t.subcategory})
                   ON CREATE SET sub.id = randomUUID()
-                CREATE (tu:Tossup {id: randomUUID(), question: t.question, answer: t.answer})
+                CREATE (tu:Tossup {id: randomUUID(), question: t.question, answer: t.answer, remoteId: t.remoteId})
                 CREATE (tu)-[:SUBCATEGORY_IS]->(sub)
                 CREATE (p)-[:CONTAINS_TOSSUP {order: t.order}]->(tu)
             }
@@ -53,7 +53,7 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
                   ON CREATE SET cat.id = randomUUID()
                 MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {name: b.subcategory})
                   ON CREATE SET sub.id = randomUUID()
-                CREATE (bo:Bonus {id: randomUUID(), preamble: b.preamble})
+                CREATE (bo:Bonus {id: randomUUID(), preamble: b.preamble, remoteId: b.remoteId})
                 CREATE (sub)-[:SUBCATEGORY_IS]->(bo)
                 CREATE (p)-[:CONTAINS_BONUS {order: b.order}]->(bo)
                 WITH bo, b

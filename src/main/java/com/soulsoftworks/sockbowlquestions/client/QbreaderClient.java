@@ -1,6 +1,7 @@
 package com.soulsoftworks.sockbowlquestions.client;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbPacketResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -68,36 +69,51 @@ public class QbreaderClient {
                 .retrieve().body(QbPacketResponse.class);
     }
 
-    /** Random tossups filtered by category and qbreader difficulty (1-10). */
-    public QbPacketResponse randomTossups(List<String> categories, List<Integer> difficulties, int number) {
+    /** Random tossups matching the given filters (category, subcategory, difficulty, year, standard-only). */
+    public QbPacketResponse randomTossups(QbRandomFilter filter, int number) {
         return http.get()
                 .uri(b -> {
                     b.path("/random-tossup").queryParam("number", number);
-                    if (categories != null && !categories.isEmpty()) {
-                        b.queryParam("categories", String.join(",", categories));
-                    }
-                    if (difficulties != null && !difficulties.isEmpty()) {
-                        b.queryParam("difficulties", joinInts(difficulties));
-                    }
+                    applyFilter(b, filter);
                     return b.build();
                 })
                 .retrieve().body(QbPacketResponse.class);
     }
 
-    /** Random bonuses filtered by category and qbreader difficulty (1-10). */
-    public QbPacketResponse randomBonuses(List<String> categories, List<Integer> difficulties, int number) {
+    /** Random bonuses matching the given filters. */
+    public QbPacketResponse randomBonuses(QbRandomFilter filter, int number) {
         return http.get()
                 .uri(b -> {
                     b.path("/random-bonus").queryParam("number", number);
-                    if (categories != null && !categories.isEmpty()) {
-                        b.queryParam("categories", String.join(",", categories));
-                    }
-                    if (difficulties != null && !difficulties.isEmpty()) {
-                        b.queryParam("difficulties", joinInts(difficulties));
-                    }
+                    applyFilter(b, filter);
                     return b.build();
                 })
                 .retrieve().body(QbPacketResponse.class);
+    }
+
+    /** Adds any set filters as qbreader query params (camelCase names, verified against the live API). */
+    private static void applyFilter(org.springframework.web.util.UriBuilder b, QbRandomFilter f) {
+        if (f == null) {
+            return;
+        }
+        if (f.categories() != null && !f.categories().isEmpty()) {
+            b.queryParam("categories", String.join(",", f.categories()));
+        }
+        if (f.subcategories() != null && !f.subcategories().isEmpty()) {
+            b.queryParam("subcategories", String.join(",", f.subcategories()));
+        }
+        if (f.difficulties() != null && !f.difficulties().isEmpty()) {
+            b.queryParam("difficulties", joinInts(f.difficulties()));
+        }
+        if (f.minYear() != null) {
+            b.queryParam("minYear", f.minYear());
+        }
+        if (f.maxYear() != null) {
+            b.queryParam("maxYear", f.maxYear());
+        }
+        if (Boolean.TRUE.equals(f.standardOnly())) {
+            b.queryParam("standardOnly", true);
+        }
     }
 
     private static String joinInts(List<Integer> ints) {
