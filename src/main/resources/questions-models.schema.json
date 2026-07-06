@@ -1,0 +1,159 @@
+{
+  "$schema" : "https://json-schema.org/draft/2020-12/schema",
+  "$defs" : {
+    "Bonus" : {
+      "type" : "object",
+      "properties" : {
+        "bonusParts" : {
+          "type" : "array",
+          "items" : {
+            "$ref" : "#/$defs/HasBonusPart"
+          }
+        },
+        "id" : {
+          "type" : "string"
+        },
+        "preamble" : {
+          "type" : "string"
+        },
+        "subcategory" : {
+          "$ref" : "#/$defs/Subcategory"
+        }
+      }
+    },
+    "BonusPart" : {
+      "type" : "object",
+      "properties" : {
+        "answer" : {
+          "type" : "string"
+        },
+        "id" : {
+          "type" : "string"
+        },
+        "question" : {
+          "type" : "string"
+        }
+      }
+    },
+    "Category" : {
+      "type" : "object",
+      "properties" : {
+        "id" : {
+          "type" : "string"
+        },
+        "name" : {
+          "type" : "string"
+        }
+      }
+    },
+    "ContainsBonus" : {
+      "type" : "object",
+      "properties" : {
+        "bonus" : {
+          "$ref" : "#/$defs/Bonus"
+        },
+        "id" : {
+          "type" : "integer"
+        },
+        "order" : {
+          "type" : "integer"
+        }
+      }
+    },
+    "ContainsTossup" : {
+      "type" : "object",
+      "properties" : {
+        "id" : {
+          "type" : "integer"
+        },
+        "order" : {
+          "type" : "integer"
+        },
+        "tossup" : {
+          "$ref" : "#/$defs/Tossup"
+        }
+      }
+    },
+    "Difficulty" : {
+      "type" : "object",
+      "properties" : {
+        "id" : {
+          "type" : "string"
+        },
+        "name" : {
+          "type" : "string"
+        }
+      }
+    },
+    "HasBonusPart" : {
+      "type" : "object",
+      "properties" : {
+        "bonusPart" : {
+          "$ref" : "#/$defs/BonusPart"
+        },
+        "id" : {
+          "type" : "integer"
+        },
+        "order" : {
+          "type" : "integer"
+        }
+      }
+    },
+    "Subcategory" : {
+      "type" : "object",
+      "properties" : {
+        "category" : {
+          "$ref" : "#/$defs/Category"
+        },
+        "id" : {
+          "type" : "string"
+        },
+        "name" : {
+          "type" : "string"
+        }
+      }
+    },
+    "Tossup" : {
+      "type" : "object",
+      "properties" : {
+        "answer" : {
+          "type" : "string"
+        },
+        "id" : {
+          "type" : "string"
+        },
+        "question" : {
+          "type" : "string"
+        },
+        "subcategory" : {
+          "$ref" : "#/$defs/Subcategory"
+        }
+      }
+    }
+  },
+  "type" : "object",
+  "properties" : {
+    "bonuses" : {
+      "type" : "array",
+      "items" : {
+        "$ref" : "#/$defs/ContainsBonus"
+      }
+    },
+    "difficulty" : {
+      "$ref" : "#/$defs/Difficulty"
+    },
+    "id" : {
+      "type" : "string"
+    },
+    "name" : {
+      "type" : "string"
+    },
+    "tossups" : {
+      "type" : "array",
+      "items" : {
+        "$ref" : "#/$defs/ContainsTossup"
+      }
+    }
+  },
+  "title" : "Packet"
+}

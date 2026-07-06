@@ -65,13 +65,24 @@ tasks.register('modelsSourcesJar', Jar) {
 	archiveClassifier = 'sources'
 }
 
+// JSON Schema of the models — the contract the ng client codegens (quicktype) from.
+tasks.register('generateModelSchema', JavaExec) {
+	group = 'build'
+	description = 'Generate questions-models.schema.json from the model classes'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.soulsoftworks.sockbowlquestions.tooling.ModelSchemaGenerator'
+	args = ["${projectDir}/src/main/resources/questions-models.schema.json"]
+}
+
 /* ------------------------------ Publishing --------------------------------- */
 publishing {
 	publications {
 		register("models", MavenPublication) {
 			groupId = project.group as String
 			artifactId = "sockbowlquestions-models"
-			version = project.version as String
+			// Stable, resolvable version for downstream consumers (decoupled from the
+			// app's main-<sha> version). SNAPSHOT is mutable on GitHub Packages.
+			version = (project.findProperty("modelsVersion") ?: "1.0.0-SNAPSHOT") as String
 
 			artifact tasks.named("modelsJar").get()
 			artifact tasks.named("modelsSourcesJar").get()
