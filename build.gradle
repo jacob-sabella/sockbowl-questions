@@ -82,7 +82,7 @@ publishing {
 			artifactId = "sockbowlquestions-models"
 			// Stable, resolvable version for downstream consumers (decoupled from the
 			// app's main-<sha> version). SNAPSHOT is mutable on GitHub Packages.
-			version = (project.findProperty("modelsVersion") ?: "1.0.0-SNAPSHOT") as String
+			version = (project.findProperty("modelsVersion") ?: "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}") as String
 
 			artifact tasks.named("modelsJar").get()
 			artifact tasks.named("modelsSourcesJar").get()
