@@ -3,6 +3,8 @@ package com.soulsoftworks.sockbowlquestions.models.relationships;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import org.springframework.data.neo4j.core.schema.RelationshipId;
 import org.springframework.data.neo4j.core.schema.RelationshipProperties;
 import org.springframework.data.neo4j.core.schema.TargetNode;
@@ -10,6 +12,8 @@ import org.springframework.data.neo4j.core.schema.TargetNode;
 @RelationshipProperties
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ContainsTossup {
     @RelationshipId
     private Long id;
