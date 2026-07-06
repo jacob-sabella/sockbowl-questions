@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.Builder;
+import lombok.AllArgsConstructor;
 import org.springframework.data.neo4j.core.schema.GeneratedValue;
 import org.springframework.data.neo4j.core.schema.Id;
 import org.springframework.data.neo4j.core.schema.Node;
@@ -15,6 +18,9 @@ import java.util.List;
 @Node
 @JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class)
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Bonus {
     @Id
     @GeneratedValue(generatorClass = UUIDStringGenerator.class)
