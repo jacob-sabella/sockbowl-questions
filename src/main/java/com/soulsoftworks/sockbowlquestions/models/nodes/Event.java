@@ -1,8 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.models.nodes;
 
 
-import com.fasterxml.jackson.annotation.JsonIdentityInfo;
-import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import com.soulsoftworks.sockbowlquestions.models.relationships.UsesPacketAtRound;
 import lombok.Data;
 import org.springframework.data.neo4j.core.schema.GeneratedValue;
@@ -14,7 +12,6 @@ import org.springframework.data.neo4j.core.support.UUIDStringGenerator;
 import java.util.List;
 
 @Node
-@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "id")
 @Data
 public class Event {
     @Id

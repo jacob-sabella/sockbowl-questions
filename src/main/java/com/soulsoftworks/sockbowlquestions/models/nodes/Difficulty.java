@@ -1,7 +1,5 @@
 package com.soulsoftworks.sockbowlquestions.models.nodes;
 
-import com.fasterxml.jackson.annotation.JsonIdentityInfo;
-import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.Builder;
@@ -12,7 +10,6 @@ import org.springframework.data.neo4j.core.schema.Node;
 import org.springframework.data.neo4j.core.support.UUIDStringGenerator;
 
 @Node
-@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "id")
 @Data
 @Builder
 @NoArgsConstructor
