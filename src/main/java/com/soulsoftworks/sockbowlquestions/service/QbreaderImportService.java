@@ -142,7 +142,18 @@ public class QbreaderImportService {
 
     /** Total bank tossups per category (for the Generate UI's category chips). */
     public Map<String, Object> categoryCounts() {
-        List<Map<String, Object>> rows = bankRepository.categoryTossupCounts();
+        return firstOrEmpty(bankRepository.categoryTossupCounts());
+    }
+
+    /** Bank tossup counts per category, subcategory, and alternate subcategory. */
+    public Map<String, Object> taxonomyCounts() {
+        return Map.of(
+                "categories", firstOrEmpty(bankRepository.categoryTossupCounts()),
+                "subcategories", firstOrEmpty(bankRepository.subcategoryTossupCounts()),
+                "alternates", firstOrEmpty(bankRepository.alternateTossupCounts()));
+    }
+
+    private static Map<String, Object> firstOrEmpty(List<Map<String, Object>> rows) {
         return rows.isEmpty() || rows.get(0) == null ? Map.of() : rows.get(0);
     }
 

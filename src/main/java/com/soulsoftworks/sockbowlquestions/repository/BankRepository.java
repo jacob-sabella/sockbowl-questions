@@ -127,4 +127,20 @@ public interface BankRepository extends Neo4jRepository<Packet, String> {
             RETURN apoc.map.fromPairs(collect([c, n])) AS row
             """)
     List<Map<String, Object>> categoryTossupCounts();
+
+    /** Total bank tossups per subcategory, as one {subcategoryName: count} map. */
+    @Query("""
+            MATCH (t:BankTossup) WHERE t.subcategory IS NOT NULL
+            WITH t.subcategory AS s, count(t) AS n
+            RETURN apoc.map.fromPairs(collect([s, n])) AS row
+            """)
+    List<Map<String, Object>> subcategoryTossupCounts();
+
+    /** Total bank tossups per alternate subcategory, as one {altName: count} map. */
+    @Query("""
+            MATCH (t:BankTossup) WHERE t.altSubcategory IS NOT NULL
+            WITH t.altSubcategory AS a, count(t) AS n
+            RETURN apoc.map.fromPairs(collect([a, n])) AS row
+            """)
+    List<Map<String, Object>> alternateTossupCounts();
 }

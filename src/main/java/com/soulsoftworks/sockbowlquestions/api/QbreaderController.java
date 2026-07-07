@@ -63,6 +63,12 @@ public class QbreaderController {
         return importService.categoryCounts();
     }
 
+    /** Bank tossup counts per category, subcategory, and alternate subcategory. */
+    @GetMapping("/taxonomy-counts")
+    public java.util.Map<String, Object> taxonomyCounts() {
+        return importService.taxonomyCounts();
+    }
+
     /** Live count of bank questions matching a filter (for the Generate UI's breadth preview). */
     @PostMapping("/count")
     public QbreaderImportService.AvailableCount count(@RequestBody RandomRequest request) {
