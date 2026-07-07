@@ -119,4 +119,12 @@ public interface BankRepository extends Neo4jRepository<Packet, String> {
             @Param("minYear") Integer minYear,
             @Param("maxYear") Integer maxYear,
             @Param("standardOnly") boolean standardOnly);
+
+    /** Total bank tossups per category, as one {categoryName: count} map. */
+    @Query("""
+            MATCH (t:BankTossup) WHERE t.category IS NOT NULL
+            WITH t.category AS c, count(t) AS n
+            RETURN apoc.map.fromPairs(collect([c, n])) AS row
+            """)
+    List<Map<String, Object>> categoryTossupCounts();
 }

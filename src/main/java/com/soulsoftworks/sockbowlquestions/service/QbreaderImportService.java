@@ -140,6 +140,12 @@ public class QbreaderImportService {
 
     public record AvailableCount(long tossups, long bonuses) {}
 
+    /** Total bank tossups per category (for the Generate UI's category chips). */
+    public Map<String, Object> categoryCounts() {
+        List<Map<String, Object>> rows = bankRepository.categoryTossupCounts();
+        return rows.isEmpty() || rows.get(0) == null ? Map.of() : rows.get(0);
+    }
+
     /* --------------------------- bank sampling --------------------------- */
 
     private List<Map<String, Object>> sampleTossups(QbRandomFilter f, List<String> exclude, int count, boolean balanced) {

@@ -3,6 +3,7 @@ package com.soulsoftworks.sockbowlquestions.api;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,6 +57,12 @@ public class QbreaderController {
     /**
      * @param excludeRemoteIds qbreader ids to avoid (already seen by this user)
      */
+    /** Total bank tossups per category, e.g. {"Science": 45000, ...}. */
+    @GetMapping("/category-counts")
+    public java.util.Map<String, Object> categoryCounts() {
+        return importService.categoryCounts();
+    }
+
     /** Live count of bank questions matching a filter (for the Generate UI's breadth preview). */
     @PostMapping("/count")
     public QbreaderImportService.AvailableCount count(@RequestBody RandomRequest request) {
