@@ -34,9 +34,9 @@ public interface BankRepository extends Neo4jRepository<Packet, String> {
               AND ($standardOnly = false OR t.standard = true)
               AND NOT t.remoteId IN $excludeRemoteIds
             WITH t, rand() AS r ORDER BY r LIMIT $count
-            RETURN t.remoteId AS remoteId, t.question AS question, t.answer AS answer,
-                   coalesce(t.category, 'Miscellaneous') AS category,
-                   coalesce(t.subcategory, t.category, 'Miscellaneous') AS subcategory
+            RETURN {remoteId: t.remoteId, question: t.question, answer: t.answer,
+                    category: coalesce(t.category, 'Miscellaneous'),
+                    subcategory: coalesce(t.subcategory, t.category, 'Miscellaneous')} AS row
             """)
     List<Map<String, Object>> sampleBankTossups(
             @Param("categories") List<String> categories,
@@ -64,10 +64,10 @@ public interface BankRepository extends Neo4jRepository<Packet, String> {
             WITH b, bp, hp ORDER BY hp.order
             WITH b, collect(CASE WHEN bp IS NULL THEN null
                                  ELSE {question: bp.question, answer: bp.answer, order: hp.order} END) AS parts
-            RETURN b.remoteId AS remoteId, b.preamble AS preamble,
-                   coalesce(b.category, 'Miscellaneous') AS category,
-                   coalesce(b.subcategory, b.category, 'Miscellaneous') AS subcategory,
-                   [p IN parts WHERE p IS NOT NULL] AS parts
+            RETURN {remoteId: b.remoteId, preamble: b.preamble,
+                    category: coalesce(b.category, 'Miscellaneous'),
+                    subcategory: coalesce(b.subcategory, b.category, 'Miscellaneous'),
+                    parts: [p IN parts WHERE p IS NOT NULL]} AS row
             """)
     List<Map<String, Object>> sampleBankBonuses(
             @Param("categories") List<String> categories,
