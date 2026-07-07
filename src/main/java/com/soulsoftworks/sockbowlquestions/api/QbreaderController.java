@@ -1,59 +1,37 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
-import com.soulsoftworks.sockbowlquestions.client.QbreaderClient;
 import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 /**
- * REST facade for browsing and importing qbreader.org packets. Returns only the
- * new packet's id + name; callers fetch the full packet via the existing GraphQL
- * {@code getPacketById} and then use it as a match packet.
+ * REST facade for generating a packet from the local Neo4j question bank. Returns
+ * only the new packet's id + name; callers fetch the full packet via the existing
+ * GraphQL {@code getPacketById} and then use it as a match packet.
+ *
+ * <p>The {@code /api/qbreader} path is retained purely for backward compatibility —
+ * there is no longer any qbreader.org call; questions come from the local bank.
  */
 @RestController
 @RequestMapping("/api/qbreader")
 public class QbreaderController {
 
-    private final QbreaderClient qbreader;
     private final QbreaderImportService importService;
 
-    public QbreaderController(QbreaderClient qbreader, QbreaderImportService importService) {
-        this.qbreader = qbreader;
+    public QbreaderController(QbreaderImportService importService) {
         this.importService = importService;
     }
 
-    /** All qbreader set names. */
-    @GetMapping("/sets")
-    public List<String> sets() {
-        return qbreader.setList();
-    }
-
-    /** Number of packets in a set (for bounding the packet-number picker). */
-    @GetMapping("/packet-count")
-    public Map<String, Integer> packetCount(@RequestParam String setName) {
-        return Map.of("numPackets", qbreader.numPackets(setName));
-    }
-
-    /** Import one published packet from a set. */
-    @PostMapping("/import")
-    public ImportResult importPacket(@RequestBody ImportRequest request) {
-        ImportOutcome outcome = importService.importPacket(request.setName(), request.packetNumber());
-        return ImportResult.from(outcome);
-    }
-
     /**
-     * Assemble and import a random packet matching the given filters, optionally
-     * excluding questions the caller has already seen (their qbreader ids). Returns
-     * the qbreader ids actually used so the caller can record them per user.
+     * Generate and persist a packet matching the given filters, optionally excluding
+     * questions the caller has already seen (their qbreader ids). Returns the qbreader
+     * ids actually used so the caller can record them per user.
      */
     @PostMapping("/import-random")
     public ImportResult importRandom(@RequestBody RandomRequest request) {
@@ -73,8 +51,6 @@ public class QbreaderController {
                 request.excludeRemoteIds());
         return ImportResult.from(outcome);
     }
-
-    public record ImportRequest(String setName, Integer packetNumber) {}
 
     /**
      * @param excludeRemoteIds qbreader ids to avoid (already seen by this user)
