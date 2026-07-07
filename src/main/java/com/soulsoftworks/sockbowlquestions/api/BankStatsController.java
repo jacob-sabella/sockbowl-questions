@@ -47,13 +47,8 @@ public class BankStatsController {
         return result;
     }
 
-    /** Unwraps the single {@code row} map from a one-row query result, or an empty map. */
-    @SuppressWarnings("unchecked")
+    /** The single result row (SDN already unwraps the {@code row} column), or an empty map. */
     private static Map<String, Object> firstRow(List<Map<String, Object>> rows) {
-        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
-            return Map.of();
-        }
-        Object row = rows.get(0).get("row");
-        return row instanceof Map ? (Map<String, Object>) row : Map.of();
+        return rows == null || rows.isEmpty() || rows.get(0) == null ? Map.of() : rows.get(0);
     }
 }
