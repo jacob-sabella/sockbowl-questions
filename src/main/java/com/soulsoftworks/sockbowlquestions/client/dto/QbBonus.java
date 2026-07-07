@@ -13,6 +13,7 @@ public record QbBonus(
         List<String> answers,
         String category,
         String subcategory,
+        @JsonProperty("alternate_subcategory") String alternateSubcategory,
         Integer difficulty,
         Integer number
 ) {}

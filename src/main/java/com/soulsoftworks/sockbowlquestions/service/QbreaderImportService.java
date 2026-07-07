@@ -102,7 +102,11 @@ public class QbreaderImportService {
         if (count <= 0) {
             return List.of();
         }
-        int fetch = Math.min(count + Math.min(exclude.size(), 30) + 5, 60);
+        // qbreader's random endpoint matches alternate_subcategory OR null, so it leaks
+        // untagged questions. When an alternate is requested, pull the biggest sample and
+        // keep only the questions actually tagged with it.
+        Set<String> wantAlts = wantedAlternates(filter);
+        int fetch = wantAlts.isEmpty() ? Math.min(count + Math.min(exclude.size(), 30) + 5, 60) : 60;
         QbPacketResponse resp = qbreader.randomTossups(filter, fetch);
         List<QbTossup> all = (resp == null || resp.tossups() == null) ? List.of() : resp.tossups();
         List<QbTossup> fresh = new ArrayList<>();
@@ -110,6 +114,9 @@ public class QbreaderImportService {
         for (QbTossup t : all) {
             String rid = t.remoteId();
             if (rid != null && (exclude.contains(rid) || !seen.add(rid))) {
+                continue;
+            }
+            if (!wantAlts.isEmpty() && !wantAlts.contains(t.alternateSubcategory())) {
                 continue;
             }
             fresh.add(t);
@@ -120,11 +127,18 @@ public class QbreaderImportService {
         return fresh;
     }
 
+    /** Requested alternate subcategories, if any (empty = no alternate constraint). */
+    private static Set<String> wantedAlternates(QbRandomFilter f) {
+        return (f == null || f.alternateSubcategories() == null || f.alternateSubcategories().isEmpty())
+                ? Set.of() : new HashSet<>(f.alternateSubcategories());
+    }
+
     private List<QbBonus> fetchFreshBonuses(QbRandomFilter filter, int count, Set<String> exclude) {
         if (count <= 0) {
             return List.of();
         }
-        int fetch = Math.min(count + Math.min(exclude.size(), 30) + 5, 60);
+        Set<String> wantAlts = wantedAlternates(filter);
+        int fetch = wantAlts.isEmpty() ? Math.min(count + Math.min(exclude.size(), 30) + 5, 60) : 60;
         QbPacketResponse resp = qbreader.randomBonuses(filter, fetch);
         List<QbBonus> all = (resp == null || resp.bonuses() == null) ? List.of() : resp.bonuses();
         List<QbBonus> fresh = new ArrayList<>();
@@ -132,6 +146,9 @@ public class QbreaderImportService {
         for (QbBonus b : all) {
             String rid = b.remoteId();
             if (rid != null && (exclude.contains(rid) || !seen.add(rid))) {
+                continue;
+            }
+            if (!wantAlts.isEmpty() && !wantAlts.contains(b.alternateSubcategory())) {
                 continue;
             }
             fresh.add(b);

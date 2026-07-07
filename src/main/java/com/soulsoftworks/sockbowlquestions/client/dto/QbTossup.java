@@ -10,6 +10,7 @@ public record QbTossup(
         String answer,
         String category,
         String subcategory,
+        @JsonProperty("alternate_subcategory") String alternateSubcategory,
         Integer difficulty,
         Integer number
 ) {}
