@@ -60,6 +60,7 @@ public class QbreaderController {
         QbRandomFilter filter = new QbRandomFilter(
                 request.categories(),
                 request.subcategories(),
+                request.alternateSubcategories(),
                 request.difficulties(),
                 request.minYear(),
                 request.maxYear(),
@@ -79,6 +80,7 @@ public class QbreaderController {
      * @param excludeRemoteIds qbreader ids to avoid (already seen by this user)
      */
     public record RandomRequest(List<String> categories, List<String> subcategories,
+                                List<String> alternateSubcategories,
                                 List<Integer> difficulties, Integer minYear, Integer maxYear,
                                 Boolean standardOnly, Integer tossupCount, Integer bonusCount,
                                 String name, List<String> excludeRemoteIds) {}

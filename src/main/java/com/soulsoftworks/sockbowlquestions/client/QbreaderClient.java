@@ -102,6 +102,9 @@ public class QbreaderClient {
         if (f.subcategories() != null && !f.subcategories().isEmpty()) {
             b.queryParam("subcategories", String.join(",", f.subcategories()));
         }
+        if (f.alternateSubcategories() != null && !f.alternateSubcategories().isEmpty()) {
+            b.queryParam("alternateSubcategories", String.join(",", f.alternateSubcategories()));
+        }
         if (f.difficulties() != null && !f.difficulties().isEmpty()) {
             b.queryParam("difficulties", joinInts(f.difficulties()));
         }
