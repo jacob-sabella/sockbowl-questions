@@ -79,4 +79,44 @@ public interface BankRepository extends Neo4jRepository<Packet, String> {
             @Param("standardOnly") boolean standardOnly,
             @Param("excludeRemoteIds") List<String> excludeRemoteIds,
             @Param("count") int count);
+
+    @Query("""
+            MATCH (t:BankTossup)
+            WHERE ($categories       IS NULL OR t.category       IN $categories)
+              AND ($subcategories    IS NULL OR t.subcategory    IN $subcategories)
+              AND ($altSubcategories IS NULL OR t.altSubcategory IN $altSubcategories)
+              AND ($difficulties     IS NULL OR t.difficulty     IN $difficulties)
+              AND ($minYear IS NULL OR t.year >= $minYear)
+              AND ($maxYear IS NULL OR t.year <= $maxYear)
+              AND ($standardOnly = false OR t.standard = true)
+            RETURN count(t)
+            """)
+    long countBankTossups(
+            @Param("categories") List<String> categories,
+            @Param("subcategories") List<String> subcategories,
+            @Param("altSubcategories") List<String> altSubcategories,
+            @Param("difficulties") List<Integer> difficulties,
+            @Param("minYear") Integer minYear,
+            @Param("maxYear") Integer maxYear,
+            @Param("standardOnly") boolean standardOnly);
+
+    @Query("""
+            MATCH (b:BankBonus)
+            WHERE ($categories       IS NULL OR b.category       IN $categories)
+              AND ($subcategories    IS NULL OR b.subcategory    IN $subcategories)
+              AND ($altSubcategories IS NULL OR b.altSubcategory IN $altSubcategories)
+              AND ($difficulties     IS NULL OR b.difficulty     IN $difficulties)
+              AND ($minYear IS NULL OR b.year >= $minYear)
+              AND ($maxYear IS NULL OR b.year <= $maxYear)
+              AND ($standardOnly = false OR b.standard = true)
+            RETURN count(b)
+            """)
+    long countBankBonuses(
+            @Param("categories") List<String> categories,
+            @Param("subcategories") List<String> subcategories,
+            @Param("altSubcategories") List<String> altSubcategories,
+            @Param("difficulties") List<Integer> difficulties,
+            @Param("minYear") Integer minYear,
+            @Param("maxYear") Integer maxYear,
+            @Param("standardOnly") boolean standardOnly);
 }

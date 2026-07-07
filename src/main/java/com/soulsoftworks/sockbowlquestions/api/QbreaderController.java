@@ -55,6 +55,15 @@ public class QbreaderController {
     /**
      * @param excludeRemoteIds qbreader ids to avoid (already seen by this user)
      */
+    /** Live count of bank questions matching a filter (for the Generate UI's breadth preview). */
+    @PostMapping("/count")
+    public QbreaderImportService.AvailableCount count(@RequestBody RandomRequest request) {
+        QbRandomFilter filter = new QbRandomFilter(
+                request.categories(), request.subcategories(), request.alternateSubcategories(),
+                request.difficulties(), request.minYear(), request.maxYear(), request.standardOnly());
+        return importService.countAvailable(filter);
+    }
+
     public record RandomRequest(List<String> categories, List<String> subcategories,
                                 List<String> alternateSubcategories,
                                 List<Integer> difficulties, Integer minYear, Integer maxYear,

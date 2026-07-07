@@ -134,6 +134,22 @@ public class QbreaderImportService {
     /** A completed generation: the packet and the qbreader ids of the questions it used. */
     public record ImportOutcome(Packet packet, List<String> usedRemoteIds) {}
 
+    /** How many bank tossups/bonuses match a filter — a live "breadth" preview for the UI. */
+    public AvailableCount countAvailable(QbRandomFilter filter) {
+        List<String> cats = emptyToNull(filter == null ? null : filter.categories());
+        List<String> subs = emptyToNull(filter == null ? null : filter.subcategories());
+        List<String> alts = emptyToNull(filter == null ? null : filter.alternateSubcategories());
+        List<Integer> diffs = emptyToNull(filter == null ? null : filter.difficulties());
+        Integer minY = filter == null ? null : filter.minYear();
+        Integer maxY = filter == null ? null : filter.maxYear();
+        boolean std = filter != null && Boolean.TRUE.equals(filter.standardOnly());
+        long tossups = bankRepository.countBankTossups(cats, subs, alts, diffs, minY, maxY, std);
+        long bonuses = bankRepository.countBankBonuses(cats, subs, alts, diffs, minY, maxY, std);
+        return new AvailableCount(tossups, bonuses);
+    }
+
+    public record AvailableCount(long tossups, long bonuses) {}
+
     /* -------------------------------------------------------------------- */
 
     private Packet findByExactName(String name) {
