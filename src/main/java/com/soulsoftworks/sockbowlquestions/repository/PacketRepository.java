@@ -67,4 +67,19 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
                              @Param("difficultyName") String difficultyName,
                              @Param("tossups") List<Map<String, Object>> tossups,
                              @Param("bonuses") List<Map<String, Object>> bonuses);
+
+    /**
+     * Delete a packet and the question nodes it owns. Every packet's tossups/bonuses/
+     * bonus-parts are created fresh and owned by exactly that packet (both authored and
+     * generated packets copy their questions), so cascading avoids orphan build-up. The
+     * shared taxonomy (Category/Subcategory/Difficulty) is intentionally left intact.
+     */
+    @Query("""
+            MATCH (p:Packet {id: $id})
+            OPTIONAL MATCH (p)-[:CONTAINS_TOSSUP]->(t:Tossup)
+            OPTIONAL MATCH (p)-[:CONTAINS_BONUS]->(b:Bonus)
+            OPTIONAL MATCH (b)-[:HAS_PART]->(bp:BonusPart)
+            DETACH DELETE p, t, b, bp
+            """)
+    void deletePacketCascade(@Param("id") String id);
 }

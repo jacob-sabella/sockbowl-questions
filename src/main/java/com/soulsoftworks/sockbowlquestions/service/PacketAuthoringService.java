@@ -110,7 +110,9 @@ public class PacketAuthoringService {
         if (!packetRepository.existsById(id)) {
             throw ResourceNotFoundException.of("Packet", id);
         }
-        packetRepository.deleteById(id);
+        // Cascade to the packet-owned question nodes so generated/authored packets
+        // don't leave orphaned tossups/bonuses/parts behind.
+        packetRepository.deletePacketCascade(id);
         return true;
     }
 
