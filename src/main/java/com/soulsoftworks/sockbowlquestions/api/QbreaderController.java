@@ -48,7 +48,8 @@ public class QbreaderController {
                 request.tossupCount() == null ? 20 : request.tossupCount(),
                 request.bonusCount() == null ? 20 : request.bonusCount(),
                 request.name(),
-                request.excludeRemoteIds());
+                request.excludeRemoteIds(),
+                Boolean.TRUE.equals(request.balanced()));
         return ImportResult.from(outcome);
     }
 
@@ -68,7 +69,7 @@ public class QbreaderController {
                                 List<String> alternateSubcategories,
                                 List<Integer> difficulties, Integer minYear, Integer maxYear,
                                 Boolean standardOnly, Integer tossupCount, Integer bonusCount,
-                                String name, List<String> excludeRemoteIds) {}
+                                String name, List<String> excludeRemoteIds, Boolean balanced) {}
 
     public record ImportResult(String id, String name, List<String> usedRemoteIds) {
         static ImportResult from(ImportOutcome o) {

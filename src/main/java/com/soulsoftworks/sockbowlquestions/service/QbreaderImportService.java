@@ -12,9 +12,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Builds native sockbowl {@link Packet}s from the LOCAL Neo4j question bank
@@ -45,31 +47,19 @@ public class QbreaderImportService {
      * @return the created packet plus the qbreader ids of the questions actually used,
      *         so the caller can record them against a user for future de-duplication.
      */
+    /** The 12 canonical qbreader categories (used to spread a balanced mix). */
+    private static final List<String> ALL_CATEGORIES = List.of(
+            "Literature", "History", "Science", "Fine Arts", "Religion", "Mythology",
+            "Philosophy", "Social Science", "Geography", "Current Events", "Other Academic", "Pop Culture");
+
     public ImportOutcome importRandomPacket(QbRandomFilter filter, int tossupCount, int bonusCount,
-                                            String name, Collection<String> excludeRemoteIds) {
+                                            String name, Collection<String> excludeRemoteIds, boolean balanced) {
         List<String> exclude = excludeRemoteIds == null
                 ? List.of()
                 : new ArrayList<>(new LinkedHashSet<>(excludeRemoteIds));
 
-        List<Map<String, Object>> tossups = bankRepository.sampleBankTossups(
-                emptyToNull(filter == null ? null : filter.categories()),
-                emptyToNull(filter == null ? null : filter.subcategories()),
-                emptyToNull(filter == null ? null : filter.alternateSubcategories()),
-                emptyToNull(filter == null ? null : filter.difficulties()),
-                filter == null ? null : filter.minYear(),
-                filter == null ? null : filter.maxYear(),
-                filter != null && Boolean.TRUE.equals(filter.standardOnly()),
-                exclude, Math.max(1, tossupCount));
-
-        List<Map<String, Object>> bonuses = bankRepository.sampleBankBonuses(
-                emptyToNull(filter == null ? null : filter.categories()),
-                emptyToNull(filter == null ? null : filter.subcategories()),
-                emptyToNull(filter == null ? null : filter.alternateSubcategories()),
-                emptyToNull(filter == null ? null : filter.difficulties()),
-                filter == null ? null : filter.minYear(),
-                filter == null ? null : filter.maxYear(),
-                filter != null && Boolean.TRUE.equals(filter.standardOnly()),
-                exclude, Math.max(0, bonusCount));
+        List<Map<String, Object>> tossups = sampleTossups(filter, exclude, Math.max(1, tossupCount), balanced);
+        List<Map<String, Object>> bonuses = sampleBonuses(filter, exclude, Math.max(0, bonusCount), balanced);
 
         if (tossups.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -149,6 +139,61 @@ public class QbreaderImportService {
     }
 
     public record AvailableCount(long tossups, long bonuses) {}
+
+    /* --------------------------- bank sampling --------------------------- */
+
+    private List<Map<String, Object>> sampleTossups(QbRandomFilter f, List<String> exclude, int count, boolean balanced) {
+        List<String> cats = emptyToNull(f == null ? null : f.categories());
+        List<String> subs = emptyToNull(f == null ? null : f.subcategories());
+        List<String> alts = emptyToNull(f == null ? null : f.alternateSubcategories());
+        List<Integer> diffs = emptyToNull(f == null ? null : f.difficulties());
+        Integer minY = f == null ? null : f.minYear();
+        Integer maxY = f == null ? null : f.maxYear();
+        boolean std = f != null && Boolean.TRUE.equals(f.standardOnly());
+        if (!balanced) {
+            return bankRepository.sampleBankTossups(cats, subs, alts, diffs, minY, maxY, std, exclude, count);
+        }
+        List<String> strata = cats == null ? ALL_CATEGORIES : cats;
+        int per = (int) Math.ceil((double) count / strata.size()) + 1;
+        Set<String> seen = new LinkedHashSet<>();
+        List<Map<String, Object>> pooled = new ArrayList<>();
+        for (String cat : strata) {
+            for (Map<String, Object> m : bankRepository.sampleBankTossups(
+                    List.of(cat), subs, alts, diffs, minY, maxY, std, exclude, per)) {
+                if (seen.add(String.valueOf(m.get("remoteId")))) pooled.add(m);
+            }
+        }
+        Collections.shuffle(pooled);
+        return pooled.size() > count ? new ArrayList<>(pooled.subList(0, count)) : pooled;
+    }
+
+    private List<Map<String, Object>> sampleBonuses(QbRandomFilter f, List<String> exclude, int count, boolean balanced) {
+        if (count <= 0) {
+            return List.of();
+        }
+        List<String> cats = emptyToNull(f == null ? null : f.categories());
+        List<String> subs = emptyToNull(f == null ? null : f.subcategories());
+        List<String> alts = emptyToNull(f == null ? null : f.alternateSubcategories());
+        List<Integer> diffs = emptyToNull(f == null ? null : f.difficulties());
+        Integer minY = f == null ? null : f.minYear();
+        Integer maxY = f == null ? null : f.maxYear();
+        boolean std = f != null && Boolean.TRUE.equals(f.standardOnly());
+        if (!balanced) {
+            return bankRepository.sampleBankBonuses(cats, subs, alts, diffs, minY, maxY, std, exclude, count);
+        }
+        List<String> strata = cats == null ? ALL_CATEGORIES : cats;
+        int per = (int) Math.ceil((double) count / strata.size()) + 1;
+        Set<String> seen = new LinkedHashSet<>();
+        List<Map<String, Object>> pooled = new ArrayList<>();
+        for (String cat : strata) {
+            for (Map<String, Object> m : bankRepository.sampleBankBonuses(
+                    List.of(cat), subs, alts, diffs, minY, maxY, std, exclude, per)) {
+                if (seen.add(String.valueOf(m.get("remoteId")))) pooled.add(m);
+            }
+        }
+        Collections.shuffle(pooled);
+        return pooled.size() > count ? new ArrayList<>(pooled.subList(0, count)) : pooled;
+    }
 
     /* -------------------------------------------------------------------- */
 
