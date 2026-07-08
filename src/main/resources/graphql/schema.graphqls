@@ -4,6 +4,10 @@ type Query {
   getAllPackets: [Packet!]!
   getPacketById(id: ID!): Packet
   searchPacketsByName(name: String!): [Packet!]!
+
+  getAllDifficulties: [Difficulty!]!
+  getAllCategories: [Category!]!
+  getAllSubcategories: [Subcategory!]!
 }
 
 """
