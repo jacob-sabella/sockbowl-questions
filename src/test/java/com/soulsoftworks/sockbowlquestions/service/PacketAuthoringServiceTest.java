@@ -141,14 +141,16 @@ class PacketAuthoringServiceTest {
         when(packetRepository.existsById("x")).thenReturn(false);
         assertThatThrownBy(() -> service.deletePacket("x"))
                 .isInstanceOf(ResourceNotFoundException.class);
-        verify(packetRepository, never()).deleteById(anyString());
+        verify(packetRepository, never()).deletePacketCascade(anyString());
     }
 
     @Test
-    void deletePacket_present_deletes() {
+    void deletePacket_present_cascadesToOwnedQuestions() {
         when(packetRepository.existsById("p")).thenReturn(true);
         assertThat(service.deletePacket("p")).isTrue();
-        verify(packetRepository).deleteById("p");
+        // Packet questions are packet-owned (copy-on-generate), so delete must
+        // cascade to them instead of leaving orphan tossup/bonus/part nodes.
+        verify(packetRepository).deletePacketCascade("p");
     }
 
     /* ------------------------------- Tossups ------------------------------- */
