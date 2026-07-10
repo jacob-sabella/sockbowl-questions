@@ -16,6 +16,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * (401 unauthenticated / 403 wrong authority / 200 correct authority)
  * without booting the full application context, which requires Neo4j.
  *
+ * <p>The HTTP layer is {@code anyRequest().permitAll()} (identical topology to
+ * {@link NoSecurityConfig}) — an unauthenticated request is never rejected by
+ * the resource-server filter itself; it falls through as an anonymous
+ * authentication and is rejected by {@code @PreAuthorize} instead. Spring
+ * Security's {@code ExceptionTranslationFilter} treats an {@code
+ * AccessDeniedException} thrown against an anonymous principal as "not
+ * authenticated" and delegates to the resource server's
+ * {@code AuthenticationEntryPoint} rather than returning a bare 403, so this
+ * surfaces as 401 (not 403) even though the rejection happens in
+ * {@code @PreAuthorize} rather than the HTTP filter chain. This is the
+ * deliberate trade that makes {@code @PreAuthorize} the sole enforcement
+ * layer (see class javadoc on {@link SecurityConfig}).
+ *
  * <p>Uses the top-level {@link SecurityProbeController} rather than a
  * nested controller, since Spring Boot's {@code TestTypeExcludeFilter}
  * excludes classes nested inside JUnit test classes from the slice's

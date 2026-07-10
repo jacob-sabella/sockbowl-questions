@@ -53,7 +53,8 @@ public class QbreaderImportService {
             "Philosophy", "Social Science", "Geography", "Current Events", "Other Academic", "Pop Culture");
 
     public ImportOutcome importRandomPacket(QbRandomFilter filter, int tossupCount, int bonusCount,
-                                            String name, Collection<String> excludeRemoteIds, boolean balanced) {
+                                            String name, Collection<String> excludeRemoteIds, boolean balanced,
+                                            String ownerId, String ownerDisplayName) {
         List<String> exclude = excludeRemoteIds == null
                 ? List.of()
                 : new ArrayList<>(new LinkedHashSet<>(excludeRemoteIds));
@@ -113,11 +114,11 @@ public class QbreaderImportService {
         String packetName = uniqueName((name == null || name.isBlank()) ? "Custom packet" : name.trim());
 
         String id = packetRepository.batchCreatePacket(
-                packetName, difficultyLabel(diff), tossupRows, bonusRows);
+                packetName, difficultyLabel(diff), tossupRows, bonusRows, ownerId, ownerDisplayName);
         log.info("Generated local packet '{}' (id={}, {} tossups, {} bonuses)",
                 packetName, id, tossupRows.size(), bonusRows.size());
         return new ImportOutcome(
-                Packet.builder().id(id).name(packetName).build(),
+                Packet.builder().id(id).name(packetName).ownerId(ownerId).ownerDisplayName(ownerDisplayName).build(),
                 new ArrayList<>(new LinkedHashSet<>(usedRemoteIds)));
     }
 

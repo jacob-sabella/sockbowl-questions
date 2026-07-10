@@ -44,12 +44,15 @@ public class QuestionGenerationService {
      * @param questionCount Number of tossups/bonuses to generate (overrides default)
      * @param generateBonuses Whether to generate bonuses (default true)
      * @param requestContext Request context containing optional custom API key and model
+     * @param ownerId Keycloak sub of the requesting user, null if anonymous (auth disabled)
+     * @param ownerDisplayName preferred_username of the requesting user, null if anonymous
      * @return Generated packet
      * @throws JsonProcessingException if JSON processing fails
      */
-    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses, AiRequestContext requestContext) throws JsonProcessingException {
+    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
+                                  AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         log.info("Generating packet using strategy: {} with {} questions (bonuses: {})", strategyName, questionCount, generateBonuses);
-        return activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses, requestContext);
+        return activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses, requestContext, ownerId, ownerDisplayName);
     }
 
     /**

@@ -1,8 +1,11 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
 import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
+import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,7 +38,8 @@ public class QbreaderController {
      * ids actually used so the caller can record them per user.
      */
     @PostMapping("/import-random")
-    public ImportResult importRandom(@RequestBody RandomRequest request) {
+    public ImportResult importRandom(@RequestBody RandomRequest request, @AuthenticationPrincipal Jwt jwt) {
+        AuthenticatedUser user = AuthenticatedUser.fromJwt(jwt); // guest() if jwt is null (anonymous game-hosting flow)
         QbRandomFilter filter = new QbRandomFilter(
                 request.categories(),
                 request.subcategories(),
@@ -50,7 +54,9 @@ public class QbreaderController {
                 request.bonusCount() == null ? 20 : request.bonusCount(),
                 request.name(),
                 request.excludeRemoteIds(),
-                Boolean.TRUE.equals(request.balanced()));
+                Boolean.TRUE.equals(request.balanced()),
+                user.keycloakId(),
+                user.username());
         return ImportResult.from(outcome);
     }
 

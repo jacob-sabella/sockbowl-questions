@@ -82,9 +82,11 @@ public class PacketAuthoringService {
     /* ------------------------------- Packet -------------------------------- */
 
     @Transactional
-    public Packet createPacket(CreatePacketInput input) {
+    public Packet createPacket(CreatePacketInput input, String ownerId, String ownerDisplayName) {
         String name = requireText(input.name(), "Packet name");
-        Packet.PacketBuilder builder = Packet.builder().name(name);
+        Packet.PacketBuilder builder = Packet.builder().name(name)
+                .ownerId(ownerId)
+                .ownerDisplayName(ownerDisplayName);
         if (input.difficultyId() != null && !input.difficultyId().isBlank()) {
             builder.difficulty(requireDifficulty(input.difficultyId()));
         }

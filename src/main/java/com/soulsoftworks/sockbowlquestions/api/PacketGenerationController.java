@@ -5,6 +5,7 @@ import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.service.QuestionGenerationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -65,9 +68,13 @@ public class PacketGenerationController {
             @RequestHeader(value = "X-Temperature", required = false) Double temperature,
             @RequestHeader(value = "X-Top-P", required = false) Double topP,
             @RequestHeader(value = "X-Frequency-Penalty", required = false) Double frequencyPenalty,
-            @RequestHeader(value = "X-Presence-Penalty", required = false) Double presencePenalty) {
+            @RequestHeader(value = "X-Presence-Penalty", required = false) Double presencePenalty,
+            @AuthenticationPrincipal Jwt jwt) {
 
         logger.info("Request received to generate a quizbowl packet");
+        // Gated by question:generate, so this is always an authenticated caller when
+        // auth is enabled; guest() only occurs when sockbowl.auth.enabled=false.
+        AuthenticatedUser user = AuthenticatedUser.fromJwt(jwt);
 
         // Validate and apply question count limits
         Integer finalQuestionCount = validateQuestionCount(questionCount);
@@ -102,7 +109,9 @@ public class PacketGenerationController {
                     additionalContext,
                     finalQuestionCount,
                     generateBonuses,
-                    requestContext
+                    requestContext,
+                    user.keycloakId(),
+                    user.username()
             );
 
             String resultMessage = generateBonuses

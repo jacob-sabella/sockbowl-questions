@@ -44,10 +44,13 @@ public interface QuestionGenerationStrategy {
      * @param questionCount Number of questions to generate
      * @param generateBonuses Whether to generate bonuses
      * @param requestContext Request context containing optional custom API key and model
+     * @param ownerId Keycloak sub of the requesting user, null if anonymous (auth disabled)
+     * @param ownerDisplayName preferred_username of the requesting user, null if anonymous
      * @return Generated packet
      * @throws JsonProcessingException if JSON processing fails
      */
-    Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses, AiRequestContext requestContext) throws JsonProcessingException;
+    Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
+                          AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException;
 
     /**
      * Get the name/identifier of this strategy.

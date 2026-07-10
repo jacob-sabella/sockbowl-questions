@@ -127,6 +127,16 @@ type Packet {
   difficulty: Difficulty
   tossups: [ContainsTossup]
   bonuses: [ContainsBonus]
+  owner: PacketOwner
+}
+
+"""
+Read-only view of a packet's creator. Null for anonymous/legacy packets
+(guest-generated, or created before ownership tracking existed).
+"""
+type PacketOwner {
+  id: String
+  name: String
 }
 
 """

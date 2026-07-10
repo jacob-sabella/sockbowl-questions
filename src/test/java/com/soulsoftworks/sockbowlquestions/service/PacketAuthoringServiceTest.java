@@ -101,14 +101,28 @@ class PacketAuthoringServiceTest {
 
     @Test
     void createPacket_persistsName() {
-        Packet result = service.createPacket(new CreatePacketInput("My Packet", null));
+        Packet result = service.createPacket(new CreatePacketInput("My Packet", null), "sub-1", "author1");
         assertThat(result.getName()).isEqualTo("My Packet");
         verify(packetRepository).save(any(Packet.class));
     }
 
     @Test
+    void createPacket_capturesOwnerFromCaller() {
+        Packet result = service.createPacket(new CreatePacketInput("My Packet", null), "sub-1", "author1");
+        assertThat(result.getOwnerId()).isEqualTo("sub-1");
+        assertThat(result.getOwnerDisplayName()).isEqualTo("author1");
+    }
+
+    @Test
+    void createPacket_anonymousCaller_leavesOwnerNull() {
+        Packet result = service.createPacket(new CreatePacketInput("My Packet", null), null, null);
+        assertThat(result.getOwnerId()).isNull();
+        assertThat(result.getOwnerDisplayName()).isNull();
+    }
+
+    @Test
     void createPacket_blankName_throws() {
-        assertThatThrownBy(() -> service.createPacket(new CreatePacketInput("  ", null)))
+        assertThatThrownBy(() -> service.createPacket(new CreatePacketInput("  ", null), "sub-1", "author1"))
                 .isInstanceOf(InvalidApiRequestException.class);
         verify(packetRepository, never()).save(any());
     }
@@ -118,14 +132,14 @@ class PacketAuthoringServiceTest {
         Difficulty d = new Difficulty();
         d.setId("d1");
         when(difficultyRepository.findById("d1")).thenReturn(Optional.of(d));
-        Packet result = service.createPacket(new CreatePacketInput("P", "d1"));
+        Packet result = service.createPacket(new CreatePacketInput("P", "d1"), "sub-1", "author1");
         assertThat(result.getDifficulty()).isSameAs(d);
     }
 
     @Test
     void createPacket_withMissingDifficulty_throwsNotFound() {
         when(difficultyRepository.findById("nope")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.createPacket(new CreatePacketInput("P", "nope")))
+        assertThatThrownBy(() -> service.createPacket(new CreatePacketInput("P", "nope"), "sub-1", "author1"))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 

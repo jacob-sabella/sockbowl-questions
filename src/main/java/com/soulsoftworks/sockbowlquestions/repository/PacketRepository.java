@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Repository
 @GraphQlRepository
@@ -17,6 +18,14 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
 
     @Query("MATCH (p:Packet) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p")
     List<Packet> searchByName(String name);
+
+    /** Resolves the owning packet of a tossup, for ownership checks on node-level mutations. */
+    @Query("MATCH (p:Packet)-[:CONTAINS_TOSSUP]->(t:Tossup {id: $tossupId}) RETURN p LIMIT 1")
+    Optional<Packet> findByTossupId(@Param("tossupId") String tossupId);
+
+    /** Resolves the owning packet of a bonus, for ownership checks on node-level mutations. */
+    @Query("MATCH (p:Packet)-[:CONTAINS_BONUS]->(b:Bonus {id: $bonusId}) RETURN p LIMIT 1")
+    Optional<Packet> findByBonusId(@Param("bonusId") String bonusId);
 
     /**
      * Creates a whole packet — difficulty, tossups, bonuses, bonus parts, and
@@ -33,7 +42,7 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
     @Query("""
             MERGE (d:Difficulty {name: $difficultyName})
               ON CREATE SET d.id = randomUUID()
-            CREATE (p:Packet {id: randomUUID(), name: $packetName})
+            CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId, ownerDisplayName: $ownerDisplayName})
             CREATE (p)-[:DIFFICULTY_LEVEL]->(d)
             WITH p
             CALL (p) {
@@ -66,7 +75,9 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
     String batchCreatePacket(@Param("packetName") String packetName,
                              @Param("difficultyName") String difficultyName,
                              @Param("tossups") List<Map<String, Object>> tossups,
-                             @Param("bonuses") List<Map<String, Object>> bonuses);
+                             @Param("bonuses") List<Map<String, Object>> bonuses,
+                             @Param("ownerId") String ownerId,
+                             @Param("ownerDisplayName") String ownerDisplayName);
 
     /**
      * Delete a packet and the question nodes it owns. Every packet's tossups/bonuses/

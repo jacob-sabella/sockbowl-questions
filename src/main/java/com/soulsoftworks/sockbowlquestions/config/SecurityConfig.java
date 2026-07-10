@@ -25,6 +25,13 @@ import java.util.Map;
  * mapped to both a raw authority (e.g. {@code packet:read}) and a
  * {@code ROLE_}-prefixed authority, so {@code @PreAuthorize("hasAuthority('packet:read')")}
  * works directly against Keycloak realm role names.
+ *
+ * <p>The HTTP layer itself permits every request ({@code anyRequest().permitAll()}) —
+ * identical topology to {@link NoSecurityConfig}. The JWT resource-server filter still
+ * runs and populates a real {@code JwtAuthenticationToken} when a bearer token is
+ * present; when absent, Spring falls back to an anonymous authentication. All actual
+ * enforcement lives in {@code @PreAuthorize} via {@code @EnableMethodSecurity}, which
+ * structurally guarantees guests are never blocked by a URL-matching regression.
  */
 @Configuration
 @EnableWebSecurity
@@ -37,9 +44,7 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
-                .authorizeHttpRequests(a -> a
-                        .requestMatchers("/actuator/health/**").permitAll()
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll())
                 .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter())))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();

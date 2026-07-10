@@ -60,7 +60,8 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     }
 
     @Override
-    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses, AiRequestContext requestContext) throws JsonProcessingException {
+    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
+                                  AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         log.info("=== Starting New Packet Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
@@ -72,7 +73,9 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
         Packet.PacketBuilder packetBuilder = Packet
                 .builder()
-                .name("Generated Packet: %s - %s".formatted(topic, UUID.randomUUID()));
+                .name("Generated Packet: %s - %s".formatted(topic, UUID.randomUUID()))
+                .ownerId(ownerId)
+                .ownerDisplayName(ownerDisplayName);
 
         List<Tossup> existingTossups = new ArrayList<>();
         List<Bonus> existingBonuses = new ArrayList<>();

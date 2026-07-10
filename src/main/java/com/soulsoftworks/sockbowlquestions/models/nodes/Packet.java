@@ -26,6 +26,12 @@ public class Packet {
     private String id;
     private String name;
 
+    /** Keycloak {@code sub} of the packet's creator; null = anonymous/legacy packet. */
+    private String ownerId;
+
+    /** {@code preferred_username} claim captured at creation time; null if anonymous. */
+    private String ownerDisplayName;
+
     @Relationship(type = "DIFFICULTY_LEVEL", direction = Relationship.Direction.OUTGOING)
     private Difficulty difficulty;
 

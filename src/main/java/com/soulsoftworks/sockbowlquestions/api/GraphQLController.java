@@ -1,5 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
+import com.soulsoftworks.sockbowlquestions.dto.PacketOwnerDto;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
@@ -10,7 +11,7 @@ import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.repository.SubcategoryRepository;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.graphql.data.method.annotation.SchemaMapping;
 import org.springframework.stereotype.Controller;
 
 import java.util.List;
@@ -37,63 +38,71 @@ public class GraphQLController {
     /**
      * Fetches all packets.
      *
+     * <p>Intentionally has no {@code @PreAuthorize}: guests (unauthenticated callers,
+     * incl. anonymous game-hosting flows) must always be able to read packets. The
+     * {@code packet:read} authority remains defined in the RBAC model for the
+     * {@code sockbowl-game-backend} service client, but nothing gates on it here.
+     *
      * @return Iterable of Packet
      */
     @QueryMapping
-    @PreAuthorize("hasAuthority('packet:read')")
     public Iterable<Packet> getAllPackets() {
         return packetRepository.findAll();
     }
 
     /**
-     * Fetches a packet by its ID.
+     * Fetches a packet by its ID. No {@code @PreAuthorize} — see {@link #getAllPackets()}.
      *
      * @param id ID of the packet
      * @return Packet if found, else null
      */
     @QueryMapping
-    @PreAuthorize("hasAuthority('packet:read')")
     public Packet getPacketById(@Argument String id) {
         Optional<Packet> packetOpt = packetRepository.findById(id);
         return packetOpt.orElse(null);
     }
 
+    /** No {@code @PreAuthorize} — see {@link #getAllPackets()}. */
     @QueryMapping
-    @PreAuthorize("hasAuthority('packet:read')")
     public List<Packet> searchPacketsByName(@Argument String name) {
         return packetRepository.searchByName(name);
     }
 
     /**
-     * Fetches all difficulties.
+     * Fetches all difficulties. No {@code @PreAuthorize} — see {@link #getAllPackets()}.
      *
      * @return Iterable of Difficulty
      */
     @QueryMapping
-    @PreAuthorize("hasAuthority('packet:read')")
     public Iterable<Difficulty> getAllDifficulties() {
         return difficultyRepository.findAll();
     }
 
     /**
-     * Fetches all categories.
+     * Fetches all categories. No {@code @PreAuthorize} — see {@link #getAllPackets()}.
      *
      * @return Iterable of Category
      */
     @QueryMapping
-    @PreAuthorize("hasAuthority('packet:read')")
     public Iterable<Category> getAllCategories() {
         return categoryRepository.findAll();
     }
 
     /**
-     * Fetches all subcategories.
+     * Fetches all subcategories. No {@code @PreAuthorize} — see {@link #getAllPackets()}.
      *
      * @return Iterable of Subcategory
      */
     @QueryMapping
-    @PreAuthorize("hasAuthority('packet:read')")
     public Iterable<Subcategory> getAllSubcategories() {
         return subcategoryRepository.findAll();
+    }
+
+    /** Read-only projection of a packet's creator; null for anonymous/legacy packets. */
+    @SchemaMapping(typeName = "Packet", field = "owner")
+    public PacketOwnerDto owner(Packet packet) {
+        return packet.getOwnerId() == null
+                ? null
+                : new PacketOwnerDto(packet.getOwnerId(), packet.getOwnerDisplayName());
     }
 }
