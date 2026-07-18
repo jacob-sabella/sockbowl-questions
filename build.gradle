@@ -42,9 +42,8 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
-	// The lone test class currently has no @Test methods; Gradle 9 fails the
-	// build when test sources exist but nothing is discovered. Allow it.
-	failOnNoDiscoveredTests = false
+	// Fail the build if test sources exist but nothing is discovered — guards
+	// against a silently-broken test-discovery config landing green in CI.
 }
 
 /* -------------------------- Models-only artifacts -------------------------- */
