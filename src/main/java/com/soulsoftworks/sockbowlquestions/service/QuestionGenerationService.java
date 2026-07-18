@@ -8,7 +8,6 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.service.strategy.QuestionGenerationStrategy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,9 +22,6 @@ public class QuestionGenerationService {
 
     private final QuestionGenerationStrategy activeStrategy;
     private final String strategyName;
-
-    @Value("${sockbowl.ai.packetgen.question-count:5}")
-    private int questionCount;
 
     public QuestionGenerationService(
             @Qualifier("defaultStrategy") QuestionGenerationStrategy defaultStrategy) {
