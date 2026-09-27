@@ -129,6 +129,27 @@ class AuthOffHttpIT extends Neo4jContainerTestBase {
                 .execute().errors().verify();
     }
 
+    /* --------------------------------- taxonomy ---------------------------------- */
+
+    /** Q2-02: the taxonomy GraphQL queries are open with auth off too, not just auth on. */
+    @Test
+    void anonymousTaxonomyQueriesSucceed() {
+        graphQl().document("{ getAllDifficulties { id } getAllCategories { id } getAllSubcategories { id } }")
+                .execute().errors().verify();
+    }
+
+    /* --------------------------- public bank aggregates --------------------------- */
+
+    /** Q2-02: the bank-aggregate GETs stay public with auth off (they carry no PreAuthorize either way). */
+    @Test
+    void bankAggregateGetEndpointsSucceedWithAuthOff() {
+        WebTestClient client = clientBuilder().build();
+        client.get().uri("/api/qbreader/stats").exchange().expectStatus().isOk();
+        client.get().uri("/api/qbreader/dimensions").exchange().expectStatus().isOk();
+        client.get().uri("/api/qbreader/category-counts").exchange().expectStatus().isOk();
+        client.get().uri("/api/qbreader/taxonomy-counts").exchange().expectStatus().isOk();
+    }
+
     @Test
     void anonymousGenerateSucceedsAsAGuest() throws Exception {
         Packet generated = new Packet();
