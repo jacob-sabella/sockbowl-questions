@@ -7,6 +7,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -66,7 +67,7 @@ public class AiChatModelSelectorEnvironmentPostProcessor implements EnvironmentP
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        Map<String, Object> derived = new java.util.HashMap<>();
+        Map<String, Object> derived = new HashMap<>();
 
         if (!environment.containsProperty(SELECTOR_PROPERTY)) {
             derived.put(SELECTOR_PROPERTY, derive(environment,

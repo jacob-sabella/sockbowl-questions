@@ -83,4 +83,62 @@ class AiChatModelSelectorEnvironmentPostProcessorTest {
 
         assertThat(derive(env)).isEqualTo("ollama");
     }
+
+    // --- spring.ai.model.embedding derivation (same shape, different property) ---
+
+    private String deriveEmbedding(MockEnvironment env) {
+        postProcessor.postProcessEnvironment(env, null);
+        return env.getProperty(AiChatModelSelectorEnvironmentPostProcessor.EMBEDDING_SELECTOR_PROPERTY);
+    }
+
+    @Test
+    void embedding_neitherFlagSet_defaultsMatchApplicationYml() {
+        // application.yml hardcodes openai embedding.enabled: false, ollama: true
+        // when no compose env vars are present at all.
+        assertThat(deriveEmbedding(new MockEnvironment())).isEqualTo("ollama");
+    }
+
+    @Test
+    void embedding_bothEnabled_defaultsToOpenAi() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("spring.ai.openai.embedding.enabled", "true")
+                .withProperty("spring.ai.ollama.embedding.enabled", "true");
+
+        assertThat(deriveEmbedding(env)).isEqualTo("openai");
+    }
+
+    @Test
+    void embedding_neitherEnabled_selectsNone() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("spring.ai.openai.embedding.enabled", "false")
+                .withProperty("spring.ai.ollama.embedding.enabled", "false");
+
+        assertThat(deriveEmbedding(env)).isEqualTo("none");
+    }
+
+    @Test
+    void embedding_explicitSelectorPropertyIsNeverOverridden() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("spring.ai.model.embedding", "openai")
+                .withProperty("spring.ai.openai.embedding.enabled", "false")
+                .withProperty("spring.ai.ollama.embedding.enabled", "true");
+
+        assertThat(deriveEmbedding(env)).isEqualTo("openai");
+    }
+
+    @Test
+    void bothSelectorsAreDerivedIndependentlyInOneCall() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("spring.ai.openai.chat.enabled", "true")
+                .withProperty("spring.ai.ollama.chat.enabled", "false")
+                .withProperty("spring.ai.openai.embedding.enabled", "false")
+                .withProperty("spring.ai.ollama.embedding.enabled", "true");
+
+        postProcessor.postProcessEnvironment(env, null);
+
+        assertThat(env.getProperty(AiChatModelSelectorEnvironmentPostProcessor.SELECTOR_PROPERTY))
+                .isEqualTo("openai");
+        assertThat(env.getProperty(AiChatModelSelectorEnvironmentPostProcessor.EMBEDDING_SELECTOR_PROPERTY))
+                .isEqualTo("ollama");
+    }
 }
