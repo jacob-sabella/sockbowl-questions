@@ -72,7 +72,7 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
                 "question", "Q?", "answer", answer,
                 "category", "Q3ReadCat", "subcategory", "Q3ReadSub", "remoteId", "", "order", 0));
         return packetRepository.batchCreatePacket(NAME_PREFIX + searchToken + "-" + suffix, "Easy", tossups, List.of(),
-                ownerId, "owner-" + ownerId, visibility.name());
+                ownerId, "owner-" + ownerId, visibility.name(), null);
     }
 
     /* ------------------------------- getPacketById ------------------------------- */

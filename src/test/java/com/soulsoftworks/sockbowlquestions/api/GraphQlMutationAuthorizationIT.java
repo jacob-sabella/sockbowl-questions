@@ -90,7 +90,7 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
                 "preamble", "Pre", "category", "Q3MutCat", "subcategory", "Q3MutSub", "remoteId", "", "order", 0,
                 "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0))));
         String packetId = packetRepository.batchCreatePacket(uniqueName(), "Easy", tossups, bonuses,
-                ownerId, ownerId == null ? null : "owner-" + ownerId, PacketVisibility.DRAFT.name());
+                ownerId, ownerId == null ? null : "owner-" + ownerId, PacketVisibility.DRAFT.name(), null);
         Packet loaded = packetRepository.findById(packetId).orElseThrow();
         var tossup = loaded.getTossups().get(0).getTossup();
         var bonus = loaded.getBonuses().get(0).getBonus();
