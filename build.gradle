@@ -40,6 +40,14 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
 	testImplementation 'org.springframework.security:spring-security-test'
+	// GraphQL testers (HttpGraphQlTester / MockMvc tester) for the auth suites.
+	testImplementation 'org.springframework.boot:spring-boot-starter-graphql-test'
+	// Integration tests against real Neo4j and Keycloak (M2 Q2/Q3, reused by M3).
+	// Testcontainers versions come from Spring Boot's dependency management.
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-neo4j'
+	testImplementation 'com.github.dasniko:testcontainers-keycloak:4.3.1'
 }
 
 tasks.named('test') {

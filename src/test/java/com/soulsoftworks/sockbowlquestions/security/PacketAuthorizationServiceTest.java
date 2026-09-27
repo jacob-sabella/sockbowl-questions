@@ -8,11 +8,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,11 +81,41 @@ class PacketAuthorizationServiceTest {
     }
 
     @Test
-    void grandfatheredOwnerlessPacket_isManageableByAnyAuthenticatedUser() {
-        authenticateAs("sub-B", "packet:update");
+    void ownerlessPacket_withAuthor_isDenied() {
+        // D3: no grandfather rule for legacy/ownerless packets.
+        authenticateAs("sub-B", "packet:update", "packet:create", "packet:delete");
         when(packetRepository.findById("p1")).thenReturn(Optional.of(packetOwnedBy(null)));
 
+        assertThat(service.canManage("p1")).isFalse();
+    }
+
+    @Test
+    void ownerlessPacket_withManageAny_isAllowed() {
+        authenticateAs("sub-C", "packet:update", "packet:manage-any");
+
         assertThat(service.canManage("p1")).isTrue();
+        assertThat(service.canManage(SecurityContextHolder.getContext().getAuthentication(), packetOwnedBy(null)))
+                .isTrue();
+    }
+
+    @Test
+    void ownerlessPacket_viaTossupOrBonus_isDeniedToAuthor() {
+        authenticateAs("sub-B", "packet:update");
+        when(packetRepository.findByTossupId("t1")).thenReturn(Optional.of(packetOwnedBy(null)));
+        when(packetRepository.findByBonusId("b1")).thenReturn(Optional.of(packetOwnedBy(null)));
+
+        assertThat(service.canManageTossup("t1")).isFalse();
+        assertThat(service.canManageBonus("b1")).isFalse();
+    }
+
+    @Test
+    void anonymousAuthentication_isDenied() {
+        Authentication anon = new AnonymousAuthenticationToken("key", "anonymousUser",
+                List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS")));
+        SecurityContextHolder.getContext().setAuthentication(anon);
+
+        assertThat(service.canManage("p1")).isFalse();
+        assertThat(service.canManage(anon, packetOwnedBy("anonymousUser"))).isFalse();
     }
 
     @Test

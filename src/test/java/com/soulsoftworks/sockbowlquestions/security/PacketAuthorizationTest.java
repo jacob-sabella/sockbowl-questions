@@ -1,5 +1,7 @@
 package com.soulsoftworks.sockbowlquestions.security;
 
+import com.soulsoftworks.sockbowlquestions.config.JwtDecoderConfig;
+import com.soulsoftworks.sockbowlquestions.config.ProbeSecurityTestConfig;
 import com.soulsoftworks.sockbowlquestions.config.SecurityConfig;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
@@ -26,7 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * one place that pattern is proven end to end without booting Neo4j.
  */
 @WebMvcTest(controllers = PacketAuthorizationProbeController.class, properties = "sockbowl.auth.enabled=true")
-@Import({SecurityConfig.class, PacketAuthorizationService.class})
+@Import({SecurityConfig.class, JwtDecoderConfig.class, ProbeSecurityTestConfig.class,
+        PacketAuthorizationService.class})
 class PacketAuthorizationTest {
 
     @Autowired
@@ -79,12 +82,25 @@ class PacketAuthorizationTest {
     }
 
     @Test
-    void grandfatheredOwnerlessPacket_succeeds() throws Exception {
+    void ownerlessPacket_isDeniedToAuthor() throws Exception {
+        // D3: no grandfather rule. An ownerless (legacy) packet is not editable by
+        // an ordinary author.
         when(packetRepository.findById("p1")).thenReturn(Optional.of(packetOwnedBy(null)));
 
         mvc.perform(get("/probe/manage/p1").with(jwt()
                         .jwt(j -> j.subject("sub-B"))
                         .authorities(new SimpleGrantedAuthority("packet:update"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void ownerlessPacket_isManageableWithManageAny() throws Exception {
+        when(packetRepository.findById("p1")).thenReturn(Optional.of(packetOwnedBy(null)));
+
+        mvc.perform(get("/probe/manage/p1").with(jwt()
+                        .jwt(j -> j.subject("sub-C"))
+                        .authorities(new SimpleGrantedAuthority("packet:update"),
+                                new SimpleGrantedAuthority("packet:manage-any"))))
                 .andExpect(status().isOk());
     }
 

@@ -6,9 +6,9 @@ management:
     web:
       exposure:
         # Only health, for the compose healthcheck. Everything else
-        # (env, beans, etc.) stays off even though NoSecurityConfig /
-        # SecurityConfig both permitAll — that topology enforces
-        # authorization at @PreAuthorize, which doesn't cover actuator.
+        # (env, beans, etc.) stays off: NoSecurityConfig (auth off) permits
+        # every URL, and @PreAuthorize doesn't cover actuator. With auth on,
+        # SecurityConfig denies every other actuator path anyway.
         include: health
   endpoint:
     health:
@@ -17,6 +17,14 @@ management:
 sockbowl:
   auth:
     enabled: "${SOCKBOWL_AUTH_ENABLED:false}"
+    # Required "aud" entry on every bearer token (AUTH-09). Keycloak adds it
+    # through the sockbowl-api-audience mapper on the Sockbowl clients.
+    audience: "${SOCKBOWL_AUTH_AUDIENCE:sockbowl-api}"
+  import:
+    # Upper bounds for POST /api/qbreader/import-random; larger requests are
+    # clamped down to these (AUTH-07).
+    max-tossups: 30
+    max-bonuses: 30
   cors:
     # Comma-separated allowlist; wired to SOCKBOWL_ALLOWED_ORIGINS in compose.
     allowed-origins: "${SOCKBOWL_ALLOWED_ORIGINS:http://localhost,http://localhost:80}"
@@ -32,6 +40,8 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/sockbowl}"
+          # Keys are fetched from here directly (no OIDC discovery at boot).
+          jwk-set-uri: "${KEYCLOAK_JWK_SET_URI:${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/certs}"
   mvc:
     async:
       request-timeout: 600000
