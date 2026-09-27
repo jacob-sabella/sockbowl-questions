@@ -1,6 +1,8 @@
 package com.soulsoftworks.sockbowlquestions.config;
 
+import com.soulsoftworks.sockbowlquestions.ratelimit.RequestGuardFilter;
 import jakarta.servlet.DispatcherType;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -17,6 +19,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,6 +53,13 @@ import java.util.Map;
  * Error and async re-dispatches are permitted because the original request was
  * already authorized; without that a 400 would turn into a 401/403 on the
  * {@code /error} forward.
+ *
+ * <p>The M4 {@link RequestGuardFilter} (IP/subject bans and REST rate limits)
+ * runs just before {@link AuthorizationFilter}: after bearer authentication, so
+ * the caller's {@code sub} and tier are known, and before any authorization
+ * decision. A request with an invalid bearer is answered 401 by the resource
+ * server before it reaches the guard, so it is not rate limited (the failed
+ * decode is its cost). {@link NoSecurityConfig} adds the same filter instance.
  */
 @Configuration
 @EnableWebSecurity
@@ -71,7 +81,8 @@ public class SecurityConfig {
     private String graphiqlPath;
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtDecoder jwtDecoder,
+                                           ObjectProvider<RequestGuardFilter> requestGuardFilter) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
@@ -93,6 +104,10 @@ public class SecurityConfig {
                         .decoder(jwtDecoder)
                         .jwtAuthenticationConverter(keycloakJwtAuthenticationConverter())))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        // M4 request guard (bans + REST rate limits). Always present in the
+        // application context (RequestGuardFilterConfig); absent only in
+        // @WebMvcTest slices that import this class alone.
+        requestGuardFilter.ifAvailable(guard -> http.addFilterBefore(guard, AuthorizationFilter.class));
         return http.build();
     }
 

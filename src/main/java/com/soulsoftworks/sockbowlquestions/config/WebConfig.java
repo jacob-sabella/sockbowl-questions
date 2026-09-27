@@ -1,5 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.config;
 
+import com.soulsoftworks.sockbowlquestions.ratelimit.LimitErrorResponses;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -18,11 +19,17 @@ public class WebConfig implements WebMvcConfigurer {
     @Value("${sockbowl.cors.allowed-origins:http://localhost,http://localhost:80}")
     private String[] allowedOrigins;
 
+    /**
+     * M4: browsers (ng) may read {@code Retry-After} and the {@code X-RateLimit-*}
+     * headers of a 429, which the request guard writes after the CORS filter has
+     * added the allow-origin header.
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
                 .allowedMethods("GET", "POST", "OPTIONS")
                 .allowedOriginPatterns(allowedOrigins)
-                .allowedHeaders("*");
+                .allowedHeaders("*")
+                .exposedHeaders(LimitErrorResponses.EXPOSED_HEADERS.toArray(String[]::new));
     }
 }
