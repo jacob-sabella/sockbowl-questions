@@ -131,6 +131,16 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
                 .expectStatus().isEqualTo(HttpStatus.OK);
     }
 
+    /* ------------------------------ actuator (Q-M2-06) ----------------------------- */
+
+    /** The compose healthcheck calls this without a token, so it must stay open with auth on. */
+    @Test
+    void actuatorHealthIsOpenToAnonymousWithAuthOn() {
+        client().get().uri("/actuator/health").exchange()
+                .expectStatus().isOk()
+                .expectBody().jsonPath("$.status").isEqualTo("UP");
+    }
+
     /* ---------------------------- public bank aggregates -------------------------- */
 
     @Test
