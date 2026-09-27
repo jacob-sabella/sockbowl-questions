@@ -11,7 +11,8 @@ ext {
 	// Bump it whenever the models change so a mavenLocal build of sockbowl-game
 	// (which resolves sockbowlquestions-models:1.0.+) picks up the new jar.
 	// 1: M2 Q2 added Packet.visibility / PacketVisibility and Packet.answersRedacted.
-	modelsLocalRevision = "1"
+	// 2: M2 Q4 added PacketVisibility.EPHEMERAL (game-only guest packets, D15).
+	modelsLocalRevision = "2"
 }
 
 group = 'com.soulsoftworks'
