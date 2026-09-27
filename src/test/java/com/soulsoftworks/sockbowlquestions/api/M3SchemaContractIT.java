@@ -61,9 +61,6 @@ class M3SchemaContractIT extends Neo4jContainerTestBase {
      */
     private static final Set<String> ALLOWED_UNMAPPED = Set.of(
             "Query.packets",            // TODO(Q5)
-            "Query.exportPacket",       // TODO(Q3)
-            "Mutation.importPacket",    // TODO(Q3)
-            "Mutation.clonePacket",     // TODO(Q3)
             "Mutation.renameCategory",  // TODO(Q4)
             "Mutation.renameSubcategory",
             "Mutation.renameDifficulty",

@@ -258,14 +258,14 @@ extend type Query {
   size is capped at 100. TODO(Q5)
   """
   packets(filter: PacketFilter, page: Int = 0, size: Int = 25): PacketPage!
-  """Plaintext export (D5). Needs full read of the packet. TODO(Q3)"""
+  """Plaintext export (D5). Needs full read of the packet."""
   exportPacket(id: ID!, format: PacketExportFormat = PLAINTEXT): String!
 }
 
 extend type Mutation {
-  """Parse a plaintext packet (D5); dryRun (the default) previews without writing. TODO(Q3)"""
+  """Parse a plaintext packet (D5); dryRun (the default) previews without writing."""
   importPacket(input: ImportPacketInput!): ImportPacketResult!
-  """Copy a packet the caller may read in full into a new DRAFT they own. TODO(Q3)"""
+  """Copy a packet the caller may read in full into a new DRAFT they own."""
   clonePacket(id: ID!, name: String): Packet!
   """Taxonomy rename/merge, taxonomy:manage only (D4). TODO(Q4)"""
   renameCategory(id: ID!, name: String!): Category!
