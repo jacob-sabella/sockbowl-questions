@@ -50,7 +50,7 @@ type Mutation {
   createDifficulty(name: String!): Difficulty!
   createCategory(name: String!): Category!
   createSubcategory(name: String!, categoryId: ID!): Subcategory!
-  # --- Subcategory assignment (null subcategoryId clears it, PB-09; TODO(Q2) implements the clear) ---
+  # --- Subcategory assignment (null subcategoryId clears it, PB-09) ---
   setTossupSubcategory(tossupId: ID!, subcategoryId: ID, expectedVersion: Int): Tossup!
   setBonusSubcategory(bonusId: ID!, subcategoryId: ID, expectedVersion: Int): Bonus!
 
@@ -277,9 +277,9 @@ extend type Mutation {
 }
 
 extend type Packet {
-  """Optimistic-lock version; send it back as expectedVersion. Null in storage reads as 0. TODO(Q2)"""
+  """Optimistic-lock version; send it back as expectedVersion. Null in storage reads as 0."""
   version: Int!
-  """Playability and D7 warnings for this packet. TODO(Q2)"""
+  """Playability and D7 warnings for this packet. playable is true exactly when no issue is an ERROR."""
   validation: PacketValidation!
 }
 

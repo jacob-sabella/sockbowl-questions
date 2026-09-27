@@ -81,14 +81,18 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
         return NAME_PREFIX + UUID.randomUUID();
     }
 
-    /** A packet with one tossup and one bonus (with one part), owned by {@code ownerId} (null = ownerless). */
+    /**
+     * A packet with one tossup and one bonus (with two parts, so removing one stays within the
+     * M3 min-1-part rule), owned by {@code ownerId} (null = ownerless).
+     */
     private Fixture seed(String ownerId) {
         List<Map<String, Object>> tossups = List.of(Map.of(
                 "question", "Q?", "answer", "A",
                 "category", "Q3MutCat", "subcategory", "Q3MutSub", "remoteId", "", "order", 0));
         List<Map<String, Object>> bonuses = List.of(Map.of(
                 "preamble", "Pre", "category", "Q3MutCat", "subcategory", "Q3MutSub", "remoteId", "", "order", 0,
-                "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0))));
+                "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0),
+                        Map.of("question", "BQ2?", "answer", "BA2", "order", 1))));
         String packetId = packetRepository.batchCreatePacket(uniqueName(), "Easy", tossups, bonuses,
                 ownerId, ownerId == null ? null : "owner-" + ownerId, PacketVisibility.DRAFT.name(), null);
         Packet loaded = packetRepository.findById(packetId).orElseThrow();
@@ -133,7 +137,9 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
                 new MutationCase("reorderTossup", f -> q(
                         "mutation { reorderTossup(packetId: \"{packetId}\", tossupId: \"{tossupId}\", newOrder: 0) { id } }", f)),
                 new MutationCase("addBonusToPacket", f -> q(
-                        "mutation { addBonusToPacket(packetId: \"{packetId}\", input: {preamble: \"P2\"}) { id } }", f)),
+                        // M3 (PB-11): a new bonus needs at least one part.
+                        "mutation { addBonusToPacket(packetId: \"{packetId}\", input: {preamble: \"P2\", "
+                                + "parts: [{question: \"NBQ?\", answer: \"NBA\"}]}) { id } }", f)),
                 new MutationCase("updateBonus", f -> q(
                         "mutation { updateBonus(id: \"{bonusId}\", input: {preamble: \"P3\"}) { id } }", f)),
                 new MutationCase("reorderBonus", f -> q(

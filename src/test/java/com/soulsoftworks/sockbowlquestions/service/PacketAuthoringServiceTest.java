@@ -6,9 +6,14 @@ import com.soulsoftworks.sockbowlquestions.api.input.CreatePacketInput;
 import com.soulsoftworks.sockbowlquestions.api.input.GenerateTossupInput;
 import com.soulsoftworks.sockbowlquestions.api.input.TossupInput;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
+import com.soulsoftworks.sockbowlquestions.config.PacketLimitsProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
+import com.soulsoftworks.sockbowlquestions.exception.PacketVersionConflictException;
 import com.soulsoftworks.sockbowlquestions.exception.ResourceNotFoundException;
+import com.soulsoftworks.sockbowlquestions.exception.ValidationFailedException;
+import com.soulsoftworks.sockbowlquestions.api.input.BonusUpdateInput;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
@@ -27,6 +32,7 @@ import com.soulsoftworks.sockbowlquestions.repository.TossupRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -40,8 +46,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,14 +67,18 @@ class PacketAuthoringServiceTest {
     @Mock private QuestionGenerationService questionGenerationService;
 
     private AiSecurityProperties aiSecurityProperties;
+    private PacketLimitsProperties limits;
     private PacketAuthoringService service;
 
     @BeforeEach
     void setUp() {
         aiSecurityProperties = new AiSecurityProperties();
+        limits = new PacketLimitsProperties();
         service = new PacketAuthoringService(packetRepository, tossupRepository, bonusRepository,
                 bonusPartRepository, difficultyRepository, subcategoryRepository,
-                questionGenerationService, aiSecurityProperties);
+                questionGenerationService, aiSecurityProperties, new PacketValidator(limits));
+        // The version bump (PB-18) succeeds unless a test says otherwise.
+        lenient().when(packetRepository.bumpVersion(anyString(), any())).thenReturn(1L);
         // Most paths save then return the saved entity; echo the argument back.
         lenient().when(packetRepository.save(any(Packet.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(bonusRepository.save(any(Bonus.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -328,7 +342,9 @@ class PacketAuthoringServiceTest {
         packet.getBonuses().add(new ContainsBonus(0, existing));
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.addBonusToPacket("p", new BonusInput("P2", null, null), null, null);
+        // M3 (PB-11): a new bonus needs at least one part.
+        Packet result = service.addBonusToPacket("p",
+                new BonusInput("P2", null, List.of(new BonusPartInput("BQ", "BA"))), null, null);
 
         assertThat(result.getBonuses()).hasSize(2);
         assertThat(result.getBonuses().stream().map(ContainsBonus::getOrder))
@@ -449,5 +465,417 @@ class PacketAuthoringServiceTest {
         assertThat(result.getTossups()).hasSize(1);
         assertThat(result.getTossups().get(0).getTossup().getQuestion()).isEqualTo("Generated?");
         assertThat(result.getTossups().get(0).getOrder()).isZero();
+    }
+
+    /* ------------------------ M3 Q2: field limits (PB-11) ------------------------ */
+
+    private static String chars(int n) {
+        return "x".repeat(n);
+    }
+
+    @Test
+    void createPacket_overLongName_isRejectedWithField() {
+        assertThatThrownBy(() -> service.createPacket(new CreatePacketInput(chars(201), null), "sub-1", "a"))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("name"));
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void createPacket_nameAtTheLimit_isAccepted() {
+        Packet result = service.createPacket(new CreatePacketInput(chars(200), null), "sub-1", "a");
+        assertThat(result.getName()).hasSize(200);
+        assertThat(result.getVersion()).isZero();
+    }
+
+    @Test
+    void renamePacket_overLongName_isRejectedBeforeAnyWrite() {
+        assertThatThrownBy(() -> service.renamePacket("p", chars(201), null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("name"));
+        verify(packetRepository, never()).bumpVersion(anyString(), any());
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void addTossup_overLongQuestion_isRejected() {
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packetWithId("p")));
+        assertThatThrownBy(() -> service.addTossupToPacket("p", new TossupInput(chars(4001), "A", null), null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("question"));
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void addTossup_overLongAnswer_isRejected() {
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packetWithId("p")));
+        assertThatThrownBy(() -> service.addTossupToPacket("p", new TossupInput("Q", chars(1001), null), null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("answer"));
+    }
+
+    @Test
+    void updateTossup_overLongQuestion_isRejected() {
+        assertThatThrownBy(() -> service.updateTossup("t1", new TossupInput(chars(4001), "A", null), null))
+                .isInstanceOf(ValidationFailedException.class);
+        verify(tossupRepository, never()).save(any());
+    }
+
+    @Test
+    void addBonus_overLongPreamble_isRejected() {
+        BonusInput input = new BonusInput(chars(2001), null, List.of(new BonusPartInput("Q", "A")));
+        assertThatThrownBy(() -> service.addBonusToPacket("p", input, null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("preamble"));
+    }
+
+    @Test
+    void updateBonus_overLongPreamble_isRejected() {
+        assertThatThrownBy(() -> service.updateBonus("b1", new BonusUpdateInput(chars(2001), null), null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("preamble"));
+        verify(bonusRepository, never()).save(any());
+    }
+
+    @Test
+    void updateBonusPart_overLongAnswer_isRejected() {
+        assertThatThrownBy(() -> service.updateBonusPart("b1", "bp1", new BonusPartInput("Q", chars(1001)), null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("answer"));
+    }
+
+    @Test
+    void limitsComeFromConfiguration() {
+        limits.getLimits().setNameMax(5);
+        assertThatThrownBy(() -> service.createPacket(new CreatePacketInput("Sixsix", null), "sub-1", "a"))
+                .isInstanceOf(ValidationFailedException.class)
+                .hasMessageContaining("5 characters");
+    }
+
+    /* -------------------- M3 Q2: structural limits (PB-11) --------------------- */
+
+    private Packet packetWithTossups(String id, int count) {
+        Packet packet = packetWithId(id);
+        for (int i = 0; i < count; i++) {
+            packet.getTossups().add(ContainsTossup.builder().order(i).tossup(tossup("t" + i, "Q" + i)).build());
+        }
+        return packet;
+    }
+
+    @Test
+    void addTossup_61st_isRejected() {
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packetWithTossups("p", 60)));
+        assertThatThrownBy(() -> service.addTossupToPacket("p", new TossupInput("Q", "A", null), null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("tossups"))
+                .hasMessageContaining("60");
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void addTossup_60th_isAccepted() {
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packetWithTossups("p", 59)));
+        Packet result = service.addTossupToPacket("p", new TossupInput("Q", "A", null), null, null);
+        assertThat(result.getTossups()).hasSize(60);
+    }
+
+    @Test
+    void generateAndAddTossup_atTheCap_isRejectedBeforeCallingTheModel() {
+        aiSecurityProperties.setRequireUserApiKey(false);
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packetWithTossups("p", 60)));
+        assertThatThrownBy(() -> service.generateAndAddTossup("p",
+                new GenerateTossupInput("Science", null, null, null, null), null, null))
+                .isInstanceOf(ValidationFailedException.class);
+        verify(questionGenerationService, never()).generateTossup(any(), any(), anyList(), any());
+    }
+
+    @Test
+    void addBonus_61st_isRejected() {
+        Packet packet = packetWithId("p");
+        for (int i = 0; i < 60; i++) {
+            Bonus b = new Bonus();
+            b.setId("b" + i);
+            packet.getBonuses().add(new ContainsBonus(i, b));
+        }
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
+        BonusInput input = new BonusInput("P", null, List.of(new BonusPartInput("Q", "A")));
+        assertThatThrownBy(() -> service.addBonusToPacket("p", input, null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("bonuses"));
+    }
+
+    @Test
+    void addBonus_withNullParts_isRejected() {
+        assertThatThrownBy(() -> service.addBonusToPacket("p", new BonusInput("P", null, null), null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("parts"))
+                .hasMessage("A bonus needs at least one part");
+        verify(packetRepository, never()).bumpVersion(anyString(), any());
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void addBonus_withEmptyParts_isRejected() {
+        assertThatThrownBy(() -> service.addBonusToPacket("p", new BonusInput("P", null, List.of()), null, null))
+                .isInstanceOf(ValidationFailedException.class)
+                .hasMessage("A bonus needs at least one part");
+    }
+
+    @Test
+    void addBonus_withTooManyParts_isRejected() {
+        List<BonusPartInput> seven = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            seven.add(new BonusPartInput("Q" + i, "A" + i));
+        }
+        assertThatThrownBy(() -> service.addBonusToPacket("p", new BonusInput("P", null, seven), null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("parts"));
+    }
+
+    @Test
+    void addBonusPart_seventh_isRejected() {
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        List<HasBonusPart> parts = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            parts.add(new HasBonusPart(i, partWithId("bp" + i)));
+        }
+        bonus.setBonusParts(parts);
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+        assertThatThrownBy(() -> service.addBonusPart("b1", new BonusPartInput("Q", "A"), null, null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("parts"));
+        verify(bonusRepository, never()).save(any());
+    }
+
+    @Test
+    void removeBonusPart_lastPart_isRejected() {
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        bonus.setBonusParts(new ArrayList<>(List.of(new HasBonusPart(0, partWithId("bp1")))));
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+
+        assertThatThrownBy(() -> service.removeBonusPart("b1", "bp1", null))
+                .isInstanceOfSatisfying(ValidationFailedException.class,
+                        e -> assertThat(e.getField()).isEqualTo("parts"))
+                .hasMessage("A bonus needs at least one part; delete the bonus instead");
+        verify(bonusPartRepository, never()).deleteById(anyString());
+        verify(bonusRepository, never()).save(any());
+    }
+
+    @Test
+    void removeBonusPart_unknownPart_isStillNotFound() {
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        bonus.setBonusParts(new ArrayList<>(List.of(new HasBonusPart(0, partWithId("bp1")))));
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+        assertThatThrownBy(() -> service.removeBonusPart("b1", "ghost", null))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    /* ---------------------- M3 Q2: subcategory clear (PB-09) ---------------------- */
+
+    @Test
+    void setTossupSubcategory_null_clearsIt() {
+        Tossup t = tossup("t1", "Q");
+        t.setSubcategory(new Subcategory());
+        when(tossupRepository.findById("t1")).thenReturn(Optional.of(t));
+
+        Tossup result = service.setTossupSubcategory("t1", null, null);
+
+        assertThat(result.getSubcategory()).isNull();
+        verify(tossupRepository).clearSubcategory("t1");
+        verify(subcategoryRepository, never()).findById(anyString());
+        verify(tossupRepository).save(t);
+    }
+
+    @Test
+    void setTossupSubcategory_blank_clearsIt() {
+        Tossup t = tossup("t1", "Q");
+        t.setSubcategory(new Subcategory());
+        when(tossupRepository.findById("t1")).thenReturn(Optional.of(t));
+        assertThat(service.setTossupSubcategory("t1", "  ", null).getSubcategory()).isNull();
+        verify(tossupRepository).clearSubcategory("t1");
+    }
+
+    @Test
+    void setTossupSubcategory_id_setsIt() {
+        Tossup t = tossup("t1", "Q");
+        Subcategory sub = new Subcategory();
+        sub.setId("s1");
+        when(tossupRepository.findById("t1")).thenReturn(Optional.of(t));
+        when(subcategoryRepository.findById("s1")).thenReturn(Optional.of(sub));
+        assertThat(service.setTossupSubcategory("t1", "s1", null).getSubcategory()).isSameAs(sub);
+        verify(tossupRepository, never()).clearSubcategory(anyString());
+    }
+
+    @Test
+    void setBonusSubcategory_null_clearsIt() {
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        bonus.setSubcategory(new Subcategory());
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+
+        Bonus result = service.setBonusSubcategory("b1", null, null);
+
+        assertThat(result.getSubcategory()).isNull();
+        verify(bonusRepository).clearSubcategory("b1");
+        verify(bonusRepository).save(bonus);
+    }
+
+    /* -------------------- M3 Q2: optimistic locking (PB-18) -------------------- */
+
+    @Test
+    void expectedVersionMismatch_throwsConflictWithCurrentVersion() {
+        when(packetRepository.bumpVersion("p", 3L)).thenReturn(null);
+        when(packetRepository.currentVersion("p")).thenReturn(Optional.of(5L));
+
+        assertThatThrownBy(() -> service.renamePacket("p", "New", 3))
+                .isInstanceOfSatisfying(PacketVersionConflictException.class, e -> {
+                    assertThat(e.getPacketId()).isEqualTo("p");
+                    assertThat(e.getExpectedVersion()).isEqualTo(3L);
+                    assertThat(e.getCurrentVersion()).isEqualTo(5L);
+                });
+        verify(packetRepository, never()).findById(anyString());
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void bumpOnMissingPacket_throwsNotFound() {
+        when(packetRepository.bumpVersion("gone", 1L)).thenReturn(null);
+        when(packetRepository.currentVersion("gone")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.reorderTossup("gone", "t1", 0, 1))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void nullExpectedVersion_skipsTheCheckButStillBumps() {
+        Packet packet = packetWithId("p");
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
+
+        service.renamePacket("p", "New", null);
+
+        verify(packetRepository).bumpVersion(eq("p"), isNull());
+        verify(packetRepository, never()).currentVersion(anyString());
+    }
+
+    @Test
+    void matchingExpectedVersion_isPassedAsLong_andBumpPrecedesTheLoad() {
+        Packet packet = packetWithId("p");
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
+
+        service.addTossupToPacket("p", new TossupInput("Q", "A", null), null, 7);
+
+        InOrder order = inOrder(packetRepository);
+        order.verify(packetRepository).bumpVersion("p", 7L);
+        order.verify(packetRepository).findById("p");
+        order.verify(packetRepository).save(packet);
+    }
+
+    @Test
+    void everyPacketLevelMutation_bumpsTheVersion() {
+        Packet packet = packetWithTossups("p", 2);
+        Bonus b1 = new Bonus();
+        b1.setId("b1");
+        Bonus b2 = new Bonus();
+        b2.setId("b2");
+        packet.getBonuses().add(new ContainsBonus(0, b1));
+        packet.getBonuses().add(new ContainsBonus(1, b2));
+        Difficulty d = new Difficulty();
+        d.setId("d1");
+        when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
+        when(difficultyRepository.findById("d1")).thenReturn(Optional.of(d));
+        when(packetRepository.existsById("p")).thenReturn(true);
+
+        service.renamePacket("p", "N", 0);
+        service.setPacketDifficulty("p", "d1", 0);
+        service.setPacketVisibility("p", PacketVisibility.PUBLISHED, 0);
+        service.addTossupToPacket("p", new TossupInput("Q", "A", null), null, 0);
+        service.reorderTossup("p", "t0", 1, 0);
+        service.removeTossupFromPacket("p", "t1", 0);
+        service.addBonusToPacket("p", new BonusInput("P", null, List.of(new BonusPartInput("Q", "A"))), null, 0);
+        service.reorderBonus("p", "b1", 0, 0);
+        service.removeBonusFromPacket("p", "b2", 0);
+        service.deletePacket("p", 0);
+
+        verify(packetRepository, times(10)).bumpVersion("p", 0L);
+    }
+
+    @Test
+    void nodeLevelMutations_bumpTheContainingPacket() {
+        Tossup t = tossup("t1", "Q");
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        bonus.setBonusParts(new ArrayList<>(List.of(
+                new HasBonusPart(0, partWithId("bp1")), new HasBonusPart(1, partWithId("bp2")))));
+        when(packetRepository.findPacketIdByTossupId("t1")).thenReturn(Optional.of("p"));
+        when(packetRepository.findPacketIdByBonusId("b1")).thenReturn(Optional.of("p"));
+        when(tossupRepository.findById("t1")).thenReturn(Optional.of(t));
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+
+        service.updateTossup("t1", new TossupInput("Q2", "A2", null), 4);
+        service.setTossupSubcategory("t1", null, 4);
+        service.updateBonus("b1", new BonusUpdateInput("P", null), 4);
+        service.setBonusSubcategory("b1", null, 4);
+        service.addBonusPart("b1", new BonusPartInput("Q", "A"), null, 4);
+        service.updateBonusPart("b1", "bp1", new BonusPartInput("Q", "A"), 4);
+        service.reorderBonusPart("b1", "bp2", 0, 4);
+        service.removeBonusPart("b1", "bp1", 4);
+
+        verify(packetRepository, times(8)).bumpVersion("p", 4L);
+    }
+
+    @Test
+    void nodeLevelMutation_staleVersion_leavesTheNodeUntouched() {
+        when(packetRepository.findPacketIdByTossupId("t1")).thenReturn(Optional.of("p"));
+        when(packetRepository.bumpVersion("p", 1L)).thenReturn(null);
+        when(packetRepository.currentVersion("p")).thenReturn(Optional.of(2L));
+
+        assertThatThrownBy(() -> service.updateTossup("t1", new TossupInput("Q", "A", null), 1))
+                .isInstanceOf(PacketVersionConflictException.class);
+        verify(tossupRepository, never()).findById(anyString());
+        verify(tossupRepository, never()).save(any());
+    }
+
+    @Test
+    void nodeOutsideAnyPacket_hasNoVersionToBump() {
+        Tossup t = tossup("orphan", "Q");
+        when(tossupRepository.findById("orphan")).thenReturn(Optional.of(t));
+        service.updateTossup("orphan", new TossupInput("Q", "A", null), 9);
+        verify(packetRepository, never()).bumpVersion(anyString(), any());
+    }
+
+    @Test
+    void setPacketVisibility_bumpsTheVersion() {
+        Packet packet = packetWithId("p1");
+        packet.setVisibility(PacketVisibility.DRAFT);
+        when(packetRepository.findById("p1")).thenReturn(Optional.of(packet));
+
+        service.setPacketVisibility("p1", PacketVisibility.PUBLISHED, 2);
+
+        InOrder order = inOrder(packetRepository);
+        order.verify(packetRepository).bumpVersion("p1", 2L);
+        order.verify(packetRepository).findById("p1");
+    }
+
+    @Test
+    void setPacketVisibility_staleExpectedVersion_isRejected() {
+        when(packetRepository.bumpVersion("p1", 2L)).thenReturn(null);
+        when(packetRepository.currentVersion("p1")).thenReturn(Optional.of(3L));
+
+        assertThatThrownBy(() -> service.setPacketVisibility("p1", PacketVisibility.PUBLISHED, 2))
+                .isInstanceOf(PacketVersionConflictException.class);
+        verify(packetRepository, never()).save(any());
+    }
+
+    @Test
+    void deletePacket_staleExpectedVersion_doesNotDelete() {
+        when(packetRepository.existsById("p")).thenReturn(true);
+        when(packetRepository.bumpVersion("p", 0L)).thenReturn(null);
+        when(packetRepository.currentVersion("p")).thenReturn(Optional.of(4L));
+
+        assertThatThrownBy(() -> service.deletePacket("p", 0))
+                .isInstanceOf(PacketVersionConflictException.class);
+        verify(packetRepository, never()).deletePacketCascade(anyString());
     }
 }
