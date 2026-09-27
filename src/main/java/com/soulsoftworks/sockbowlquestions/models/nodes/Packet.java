@@ -7,6 +7,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Singular;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedBy;
+import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.neo4j.core.schema.GeneratedValue;
 import org.springframework.data.neo4j.core.schema.Id;
@@ -14,6 +18,7 @@ import org.springframework.data.neo4j.core.schema.Node;
 import org.springframework.data.neo4j.core.schema.Relationship;
 import org.springframework.data.neo4j.core.support.UUIDStringGenerator;
 
+import java.time.Instant;
 import java.util.List;
 
 @Node
@@ -49,6 +54,30 @@ public class Packet {
      */
     @Transient
     private Boolean answersRedacted;
+
+    /** How this packet was made (D13, M4-PV-01). Set explicitly by application code. */
+    private ContentSource source;
+
+    /** The model that generated this packet, when {@link #source} is {@code AI_GENERATED}; null otherwise. */
+    private String aiModel;
+
+    /** Keycloak {@code sub} of whoever created this node (D13), or {@code "anonymous"}/{@code "service:*"};
+     *  set automatically by {@code @EnableNeo4jAuditing}. Null on nodes saved before M4 or via raw Cypher
+     *  that doesn't pass an auditor. */
+    @CreatedBy
+    private String createdBy;
+
+    /** When this node was first saved (D13); set automatically by {@code @EnableNeo4jAuditing}. */
+    @CreatedDate
+    private Instant createdAt;
+
+    /** Same as {@link #createdBy}, but updated on every save, including the first. */
+    @LastModifiedBy
+    private String lastModifiedBy;
+
+    /** Same as {@link #createdAt}, but updated on every save, including the first. */
+    @LastModifiedDate
+    private Instant lastModifiedAt;
 
     @Relationship(type = "DIFFICULTY_LEVEL", direction = Relationship.Direction.OUTGOING)
     private Difficulty difficulty;

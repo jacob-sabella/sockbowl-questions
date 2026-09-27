@@ -1,5 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.repository;
 
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.security.PacketReadPolicy;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.neo4j.core.Neo4jClient;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -96,9 +98,11 @@ class PacketRepositoryVisibilityIT extends Neo4jContainerTestBase {
     @Test
     void batchCreateStampsEphemeralPacketsForTheTtlCleanup() {
         String eph = repository.batchCreatePacket("repo-vis Eph", "Easy", List.of(), List.of(), null, null,
-                PacketVisibility.EPHEMERAL.name(), "import-random");
+                PacketVisibility.EPHEMERAL.name(), "import-random",
+                "anonymous", Instant.now().toString(), ContentSource.QBREADER_IMPORT.name());
         String draft = repository.batchCreatePacket("repo-vis Draft", "Easy", List.of(), List.of(), OWNER, "owner",
-                PacketVisibility.DRAFT.name(), "import-random");
+                PacketVisibility.DRAFT.name(), "import-random",
+                OWNER, Instant.now().toString(), ContentSource.QBREADER_IMPORT.name());
 
         Map<String, Object> ephProps = storedProps(eph);
         assertThat(ephProps).containsEntry("visibility", "EPHEMERAL").containsEntry("createdVia", "import-random")
@@ -136,7 +140,8 @@ class PacketRepositoryVisibilityIT extends Neo4jContainerTestBase {
     @Test
     void batchCreateStoresTheGivenVisibility() {
         String id = repository.batchCreatePacket("repo-vis Batch", "Easy", List.of(), List.of(), OWNER, "owner",
-                PacketVisibility.DRAFT.name(), "import-random");
+                PacketVisibility.DRAFT.name(), "import-random",
+                OWNER, Instant.now().toString(), ContentSource.QBREADER_IMPORT.name());
 
         Packet stored = repository.findById(id).orElseThrow();
         assertThat(stored.getVisibility()).isEqualTo(PacketVisibility.DRAFT);
