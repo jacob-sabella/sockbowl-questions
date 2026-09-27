@@ -69,9 +69,7 @@ class M3SchemaContractIT extends Neo4jContainerTestBase {
             "Mutation.renameDifficulty",
             "Mutation.mergeCategories",
             "Mutation.mergeSubcategories",
-            "Mutation.mergeDifficulties",
-            "Packet.version",           // TODO(Q2)
-            "Packet.validation");       // TODO(Q2)
+            "Mutation.mergeDifficulties");
 
     /** Every packet/content mutation that must take {@code expectedVersion: Int} (last argument). */
     private static final List<String> VERSIONED_MUTATIONS = List.of(

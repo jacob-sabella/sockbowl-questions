@@ -9,6 +9,7 @@ import com.soulsoftworks.sockbowlquestions.api.input.TossupInput;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
+import com.soulsoftworks.sockbowlquestions.exception.PacketVersionConflictException;
 import com.soulsoftworks.sockbowlquestions.exception.ResourceNotFoundException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
@@ -44,11 +45,17 @@ import java.util.List;
  * indices are clamped (null/large = append). Removes and reorders re-normalise
  * the remaining items to {@code 0..n-1}.
  *
- * <p>Optimistic locking (PB-18): every mutation that targets an existing packet or its
- * content takes an {@code expectedVersion}, the packet version the caller last saw.
- * Null skips the check (the game and older clients). TODO(Q2): bump the packet version
- * first in each of these and reject a stale {@code expectedVersion} with
- * {@code PacketVersionConflictException}; until then the argument is accepted and ignored.
+ * <p>Optimistic locking (PB-18, plan 3.1.4): every mutation that targets an existing
+ * packet or its content takes an {@code expectedVersion}, the packet version the caller
+ * last saw, and calls {@link #bumpVersion} <em>first</em>, before loading anything it will
+ * save. The bump takes the packet's write lock for the rest of the transaction (so
+ * concurrent mutations of one packet are serialized) and rejects a stale
+ * {@code expectedVersion} with {@link PacketVersionConflictException}. Null skips the
+ * check (the game and older clients) but still bumps. Node-level mutations resolve the
+ * packet through the tossup or bonus; a node outside any packet has no version to bump.
+ *
+ * <p>Validation (PB-11, plan 3.1.5): field lengths and structural caps come from
+ * {@link PacketValidator}.
  *
  * <p>Taxonomy creation lives in {@link TaxonomyService} (moved in M3 Q1).
  */
@@ -64,6 +71,7 @@ public class PacketAuthoringService {
     private final SubcategoryRepository subcategoryRepository;
     private final QuestionGenerationService questionGenerationService;
     private final AiSecurityProperties aiSecurityProperties;
+    private final PacketValidator validator;
 
     public PacketAuthoringService(PacketRepository packetRepository,
                                   TossupRepository tossupRepository,
@@ -72,7 +80,8 @@ public class PacketAuthoringService {
                                   DifficultyRepository difficultyRepository,
                                   SubcategoryRepository subcategoryRepository,
                                   QuestionGenerationService questionGenerationService,
-                                  AiSecurityProperties aiSecurityProperties) {
+                                  AiSecurityProperties aiSecurityProperties,
+                                  PacketValidator validator) {
         this.packetRepository = packetRepository;
         this.tossupRepository = tossupRepository;
         this.bonusRepository = bonusRepository;
@@ -81,14 +90,16 @@ public class PacketAuthoringService {
         this.subcategoryRepository = subcategoryRepository;
         this.questionGenerationService = questionGenerationService;
         this.aiSecurityProperties = aiSecurityProperties;
+        this.validator = validator;
     }
 
     /* ------------------------------- Packet -------------------------------- */
 
     @Transactional
     public Packet createPacket(CreatePacketInput input, String ownerId, String ownerDisplayName) {
-        String name = requireText(input.name(), "Packet name");
+        String name = validator.packetName(input.name());
         Packet.PacketBuilder builder = Packet.builder().name(name)
+                .version(0L)
                 .ownerId(ownerId)
                 .ownerDisplayName(ownerDisplayName)
                 // D2: new packets start as drafts; the owner publishes via setPacketVisibility.
@@ -101,8 +112,10 @@ public class PacketAuthoringService {
 
     @Transactional
     public Packet renamePacket(String id, String name, Integer expectedVersion) {
+        String validName = validator.packetName(name);
+        bumpVersion(id, expectedVersion);
         Packet packet = requirePacket(id);
-        packet.setName(requireText(name, "Packet name"));
+        packet.setName(validName);
         return packetRepository.save(packet);
     }
 
@@ -119,6 +132,7 @@ public class PacketAuthoringService {
             // D15: EPHEMERAL packets only come from import-random for guests and players.
             throw new InvalidApiRequestException("Packet visibility " + visibility + " can't be set directly");
         }
+        bumpVersion(id, expectedVersion);
         Packet packet = requirePacket(id);
         packet.setVisibility(visibility);
         return packetRepository.save(packet);
@@ -126,6 +140,7 @@ public class PacketAuthoringService {
 
     @Transactional
     public Packet setPacketDifficulty(String id, String difficultyId, Integer expectedVersion) {
+        bumpVersion(id, expectedVersion);
         Packet packet = requirePacket(id);
         packet.setDifficulty(requireDifficulty(difficultyId));
         return packetRepository.save(packet);
@@ -136,6 +151,7 @@ public class PacketAuthoringService {
         if (!packetRepository.existsById(id)) {
             throw ResourceNotFoundException.of("Packet", id);
         }
+        bumpVersion(id, expectedVersion);
         // Cascade to the packet-owned question nodes so generated/authored packets
         // don't leave orphaned tossups/bonuses/parts behind.
         packetRepository.deletePacketCascade(id);
@@ -147,14 +163,19 @@ public class PacketAuthoringService {
     @Transactional
     public Packet addTossupToPacket(String packetId, TossupInput input, Integer order,
                                     Integer expectedVersion) {
+        // A rejected input rolls the whole transaction back, bump included.
+        bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
+        String question = validator.question(input.question(), "Tossup question");
+        String answer = validator.answer(input.answer(), "Tossup answer");
+        List<ContainsTossup> rels = sortedTossups(packet);
+        validator.checkCanAddTossup(rels.size());
         Tossup tossup = Tossup.builder()
-                .question(requireText(input.question(), "Tossup question"))
-                .answer(requireText(input.answer(), "Tossup answer"))
+                .question(question)
+                .answer(answer)
                 .subcategory(optionalSubcategory(input.subcategoryId()))
                 .build();
 
-        List<ContainsTossup> rels = sortedTossups(packet);
         int idx = resolveInsertIndex(order, rels.size());
         rels.add(idx, ContainsTossup.builder().order(idx).tossup(tossup).build());
         renumberTossups(rels);
@@ -164,9 +185,12 @@ public class PacketAuthoringService {
 
     @Transactional
     public Tossup updateTossup(String id, TossupInput input, Integer expectedVersion) {
+        String question = validator.question(input.question(), "Tossup question");
+        String answer = validator.answer(input.answer(), "Tossup answer");
+        bumpVersionForTossup(id, expectedVersion);
         Tossup tossup = requireTossup(id);
-        tossup.setQuestion(requireText(input.question(), "Tossup question"));
-        tossup.setAnswer(requireText(input.answer(), "Tossup answer"));
+        tossup.setQuestion(question);
+        tossup.setAnswer(answer);
         if (input.subcategoryId() != null) {
             tossup.setSubcategory(optionalSubcategory(input.subcategoryId()));
         }
@@ -175,6 +199,7 @@ public class PacketAuthoringService {
 
     @Transactional
     public Packet removeTossupFromPacket(String packetId, String tossupId, Integer expectedVersion) {
+        bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
         List<ContainsTossup> rels = sortedTossups(packet);
         boolean removed = rels.removeIf(rel -> rel.getTossup() != null
@@ -193,6 +218,7 @@ public class PacketAuthoringService {
     @Transactional
     public Packet reorderTossup(String packetId, String tossupId, int newOrder,
                                 Integer expectedVersion) {
+        bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
         List<ContainsTossup> rels = sortedTossups(packet);
         ContainsTossup moving = rels.stream()
@@ -212,13 +238,18 @@ public class PacketAuthoringService {
     @Transactional
     public Packet addBonusToPacket(String packetId, BonusInput input, Integer order,
                                    Integer expectedVersion) {
+        validator.checkNewBonusParts(input.parts() == null ? 0 : input.parts().size());
+        String preamble = validator.preamble(input.preamble());
+        List<HasBonusPart> parts = buildBonusParts(input.parts());
+        bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
-        Bonus bonus = new Bonus();
-        bonus.setPreamble(input.preamble());
-        bonus.setSubcategory(optionalSubcategory(input.subcategoryId()));
-        bonus.setBonusParts(buildBonusParts(input.parts()));
-
         List<Bonus> ordered = orderedBonuses(packet);
+        validator.checkCanAddBonus(ordered.size());
+        Bonus bonus = new Bonus();
+        bonus.setPreamble(preamble);
+        bonus.setSubcategory(optionalSubcategory(input.subcategoryId()));
+        bonus.setBonusParts(parts);
+
         int idx = resolveInsertIndex(order, ordered.size());
         ordered.add(idx, bonus);
         packet.setBonuses(rebuildContainsBonus(ordered));
@@ -227,8 +258,10 @@ public class PacketAuthoringService {
 
     @Transactional
     public Bonus updateBonus(String id, BonusUpdateInput input, Integer expectedVersion) {
+        String preamble = validator.preamble(input.preamble());
+        bumpVersionForBonus(id, expectedVersion);
         Bonus bonus = requireBonus(id);
-        bonus.setPreamble(input.preamble());
+        bonus.setPreamble(preamble);
         if (input.subcategoryId() != null) {
             bonus.setSubcategory(optionalSubcategory(input.subcategoryId()));
         }
@@ -237,6 +270,7 @@ public class PacketAuthoringService {
 
     @Transactional
     public Packet removeBonusFromPacket(String packetId, String bonusId, Integer expectedVersion) {
+        bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
         List<Bonus> ordered = orderedBonuses(packet);
         boolean removed = ordered.removeIf(b -> bonusId.equals(b.getId()));
@@ -253,6 +287,7 @@ public class PacketAuthoringService {
     @Transactional
     public Packet reorderBonus(String packetId, String bonusId, int newOrder,
                                Integer expectedVersion) {
+        bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
         List<Bonus> ordered = orderedBonuses(packet);
         Bonus moving = ordered.stream()
@@ -271,10 +306,11 @@ public class PacketAuthoringService {
     @Transactional
     public Bonus addBonusPart(String bonusId, BonusPartInput input, Integer order,
                               Integer expectedVersion) {
-        Bonus bonus = requireBonus(bonusId);
         BonusPart part = buildBonusPart(input);
-
+        bumpVersionForBonus(bonusId, expectedVersion);
+        Bonus bonus = requireBonus(bonusId);
         List<BonusPart> ordered = orderedBonusParts(bonus);
+        validator.checkCanAddPart(ordered.size());
         int idx = resolveInsertIndex(order, ordered.size());
         ordered.add(idx, part);
         bonus.setBonusParts(rebuildHasBonusPart(ordered));
@@ -284,26 +320,31 @@ public class PacketAuthoringService {
     @Transactional
     public Bonus updateBonusPart(String bonusId, String bonusPartId, BonusPartInput input,
                                  Integer expectedVersion) {
+        String question = validator.question(input.question(), "Bonus part question");
+        String answer = validator.answer(input.answer(), "Bonus part answer");
+        bumpVersionForBonus(bonusId, expectedVersion);
         Bonus bonus = requireBonus(bonusId);
         BonusPart part = orderedBonusParts(bonus).stream()
                 .filter(p -> bonusPartId.equals(p.getId()))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Bonus part " + bonusPartId + " is not part of bonus " + bonusId));
-        part.setQuestion(requireText(input.question(), "Bonus part question"));
-        part.setAnswer(requireText(input.answer(), "Bonus part answer"));
+        part.setQuestion(question);
+        part.setAnswer(answer);
         return bonusRepository.save(bonus);
     }
 
     @Transactional
     public Bonus removeBonusPart(String bonusId, String bonusPartId, Integer expectedVersion) {
+        bumpVersionForBonus(bonusId, expectedVersion);
         Bonus bonus = requireBonus(bonusId);
         List<BonusPart> ordered = orderedBonusParts(bonus);
-        boolean removed = ordered.removeIf(p -> bonusPartId.equals(p.getId()));
-        if (!removed) {
+        if (ordered.stream().noneMatch(p -> bonusPartId.equals(p.getId()))) {
             throw new ResourceNotFoundException(
                     "Bonus part " + bonusPartId + " is not part of bonus " + bonusId);
         }
+        validator.checkCanRemovePart(ordered.size());
+        ordered.removeIf(p -> bonusPartId.equals(p.getId()));
         bonus.setBonusParts(rebuildHasBonusPart(ordered));
         Bonus saved = bonusRepository.save(bonus);
         bonusPartRepository.deleteById(bonusPartId);
@@ -313,6 +354,7 @@ public class PacketAuthoringService {
     @Transactional
     public Bonus reorderBonusPart(String bonusId, String bonusPartId, int newOrder,
                                   Integer expectedVersion) {
+        bumpVersionForBonus(bonusId, expectedVersion);
         Bonus bonus = requireBonus(bonusId);
         List<BonusPart> ordered = orderedBonusParts(bonus);
         BonusPart moving = ordered.stream()
@@ -328,19 +370,34 @@ public class PacketAuthoringService {
 
     /* ----------------------------- Subcategory ----------------------------- */
 
-    // TODO(Q2): a null subcategoryId clears the SUBCATEGORY_IS relationship (PB-09);
-    // the schema already accepts null.
+    /**
+     * Sets or clears (PB-09, plan 3.1.7) a tossup's subcategory. A null or blank
+     * {@code subcategoryId} deletes the {@code SUBCATEGORY_IS} relationship.
+     */
     @Transactional
     public Tossup setTossupSubcategory(String tossupId, String subcategoryId, Integer expectedVersion) {
+        bumpVersionForTossup(tossupId, expectedVersion);
         Tossup tossup = requireTossup(tossupId);
-        tossup.setSubcategory(requireSubcategory(subcategoryId));
+        if (isBlank(subcategoryId)) {
+            tossupRepository.clearSubcategory(tossupId);
+            tossup.setSubcategory(null);
+        } else {
+            tossup.setSubcategory(requireSubcategory(subcategoryId));
+        }
         return tossupRepository.save(tossup);
     }
 
+    /** Sets or clears a bonus's subcategory; see {@link #setTossupSubcategory}. */
     @Transactional
     public Bonus setBonusSubcategory(String bonusId, String subcategoryId, Integer expectedVersion) {
+        bumpVersionForBonus(bonusId, expectedVersion);
         Bonus bonus = requireBonus(bonusId);
-        bonus.setSubcategory(requireSubcategory(subcategoryId));
+        if (isBlank(subcategoryId)) {
+            bonusRepository.clearSubcategory(bonusId);
+            bonus.setSubcategory(null);
+        } else {
+            bonus.setSubcategory(requireSubcategory(subcategoryId));
+        }
         return bonusRepository.save(bonus);
     }
 
@@ -354,8 +411,10 @@ public class PacketAuthoringService {
     @Transactional
     public Packet generateAndAddTossup(String packetId, GenerateTossupInput input, Integer order,
                                        Integer expectedVersion) {
-        Packet packet = requirePacket(packetId);
         String topic = requireText(input.topic(), "Topic");
+        bumpVersion(packetId, expectedVersion);
+        Packet packet = requirePacket(packetId);
+        validator.checkCanAddTossup(sortedTossups(packet).size());
 
         AiRequestContext context = AiRequestContext.builder()
                 .apiKey(input.apiKey())
@@ -443,8 +502,8 @@ public class PacketAuthoringService {
 
     private BonusPart buildBonusPart(BonusPartInput input) {
         BonusPart part = new BonusPart();
-        part.setQuestion(requireText(input.question(), "Bonus part question"));
-        part.setAnswer(requireText(input.answer(), "Bonus part answer"));
+        part.setQuestion(validator.question(input.question(), "Bonus part question"));
+        part.setAnswer(validator.answer(input.answer(), "Bonus part answer"));
         return part;
     }
 
@@ -475,6 +534,41 @@ public class PacketAuthoringService {
             return null;
         }
         return requireSubcategory(subcategoryId);
+    }
+
+    /**
+     * Locks the packet, checks {@code expectedVersion} and bumps the version (plan 3.1.4).
+     * Must run before the packet or its content is loaded for saving, so the later save
+     * writes the bumped version.
+     *
+     * @throws PacketVersionConflictException when {@code expectedVersion} is stale
+     * @throws ResourceNotFoundException      when the packet doesn't exist
+     */
+    private void bumpVersion(String packetId, Integer expectedVersion) {
+        Long expected = expectedVersion == null ? null : expectedVersion.longValue();
+        Long bumped = packetRepository.bumpVersion(packetId, expected);
+        if (bumped != null) {
+            return;
+        }
+        Long current = packetRepository.currentVersion(packetId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Packet", packetId));
+        throw new PacketVersionConflictException(packetId, expected, current);
+    }
+
+    /** {@link #bumpVersion} on the packet containing the tossup; no-op for a tossup outside any packet. */
+    private void bumpVersionForTossup(String tossupId, Integer expectedVersion) {
+        packetRepository.findPacketIdByTossupId(tossupId)
+                .ifPresent(packetId -> bumpVersion(packetId, expectedVersion));
+    }
+
+    /** {@link #bumpVersion} on the packet containing the bonus; no-op for a bonus outside any packet. */
+    private void bumpVersionForBonus(String bonusId, Integer expectedVersion) {
+        packetRepository.findPacketIdByBonusId(bonusId)
+                .ifPresent(packetId -> bumpVersion(packetId, expectedVersion));
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private Packet requirePacket(String id) {
