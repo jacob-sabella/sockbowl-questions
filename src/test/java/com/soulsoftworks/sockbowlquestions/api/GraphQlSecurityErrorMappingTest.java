@@ -119,6 +119,6 @@ class GraphQlSecurityErrorMappingTest {
 
         graphql(DELETE, as("author-sub", "packet:delete"))
                 .andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
-        verify(authoringService, never()).deletePacket(any());
+        verify(authoringService, never()).deletePacket(any(), any());
     }
 }

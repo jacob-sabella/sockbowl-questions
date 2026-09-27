@@ -20,7 +20,6 @@ import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
 import com.soulsoftworks.sockbowlquestions.repository.BonusPartRepository;
 import com.soulsoftworks.sockbowlquestions.repository.BonusRepository;
-import com.soulsoftworks.sockbowlquestions.repository.CategoryRepository;
 import com.soulsoftworks.sockbowlquestions.repository.DifficultyRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.repository.SubcategoryRepository;
@@ -54,7 +53,6 @@ class PacketAuthoringServiceTest {
     @Mock private BonusRepository bonusRepository;
     @Mock private BonusPartRepository bonusPartRepository;
     @Mock private DifficultyRepository difficultyRepository;
-    @Mock private CategoryRepository categoryRepository;
     @Mock private SubcategoryRepository subcategoryRepository;
     @Mock private QuestionGenerationService questionGenerationService;
 
@@ -65,7 +63,7 @@ class PacketAuthoringServiceTest {
     void setUp() {
         aiSecurityProperties = new AiSecurityProperties();
         service = new PacketAuthoringService(packetRepository, tossupRepository, bonusRepository,
-                bonusPartRepository, difficultyRepository, categoryRepository, subcategoryRepository,
+                bonusPartRepository, difficultyRepository, subcategoryRepository,
                 questionGenerationService, aiSecurityProperties);
         // Most paths save then return the saved entity; echo the argument back.
         lenient().when(packetRepository.save(any(Packet.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -133,7 +131,7 @@ class PacketAuthoringServiceTest {
         packet.setVisibility(PacketVisibility.DRAFT);
         when(packetRepository.findById("p1")).thenReturn(Optional.of(packet));
 
-        Packet result = service.setPacketVisibility("p1", PacketVisibility.PUBLISHED);
+        Packet result = service.setPacketVisibility("p1", PacketVisibility.PUBLISHED, null);
 
         assertThat(result.getVisibility()).isEqualTo(PacketVisibility.PUBLISHED);
         verify(packetRepository).save(packet);
@@ -142,13 +140,13 @@ class PacketAuthoringServiceTest {
     @Test
     void setPacketVisibility_missingPacket_throwsNotFound() {
         when(packetRepository.findById("nope")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.setPacketVisibility("nope", PacketVisibility.PUBLISHED))
+        assertThatThrownBy(() -> service.setPacketVisibility("nope", PacketVisibility.PUBLISHED, null))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
     void setPacketVisibility_null_isRejected() {
-        assertThatThrownBy(() -> service.setPacketVisibility("p1", null))
+        assertThatThrownBy(() -> service.setPacketVisibility("p1", null, null))
                 .isInstanceOf(InvalidApiRequestException.class);
         verify(packetRepository, never()).save(any(Packet.class));
     }
@@ -156,7 +154,7 @@ class PacketAuthoringServiceTest {
     @Test
     void setPacketVisibility_ephemeral_isRejected() {
         // D15: EPHEMERAL only comes from import-random for callers without packet:create.
-        assertThatThrownBy(() -> service.setPacketVisibility("p1", PacketVisibility.EPHEMERAL))
+        assertThatThrownBy(() -> service.setPacketVisibility("p1", PacketVisibility.EPHEMERAL, null))
                 .isInstanceOf(InvalidApiRequestException.class);
         verify(packetRepository, never()).save(any(Packet.class));
     }
@@ -187,14 +185,14 @@ class PacketAuthoringServiceTest {
     @Test
     void renamePacket_missing_throwsNotFound() {
         when(packetRepository.findById("x")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.renamePacket("x", "New"))
+        assertThatThrownBy(() -> service.renamePacket("x", "New", null))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
     void deletePacket_missing_throwsNotFound() {
         when(packetRepository.existsById("x")).thenReturn(false);
-        assertThatThrownBy(() -> service.deletePacket("x"))
+        assertThatThrownBy(() -> service.deletePacket("x", null))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(packetRepository, never()).deletePacketCascade(anyString());
     }
@@ -202,7 +200,7 @@ class PacketAuthoringServiceTest {
     @Test
     void deletePacket_present_cascadesToOwnedQuestions() {
         when(packetRepository.existsById("p")).thenReturn(true);
-        assertThat(service.deletePacket("p")).isTrue();
+        assertThat(service.deletePacket("p", null)).isTrue();
         // Packet questions are packet-owned (copy-on-generate), so delete must
         // cascade to them instead of leaving orphan tossup/bonus/part nodes.
         verify(packetRepository).deletePacketCascade("p");
@@ -215,8 +213,8 @@ class PacketAuthoringServiceTest {
         Packet packet = packetWithId("p");
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        service.addTossupToPacket("p", new TossupInput("Q1", "A1", null), null);
-        Packet result = service.addTossupToPacket("p", new TossupInput("Q2", "A2", null), null);
+        service.addTossupToPacket("p", new TossupInput("Q1", "A1", null), null, null);
+        Packet result = service.addTossupToPacket("p", new TossupInput("Q2", "A2", null), null, null);
 
         assertThat(tossupOrders(result)).containsExactly(0, 1);
         assertThat(result.getTossups().get(1).getTossup().getQuestion()).isEqualTo("Q2");
@@ -228,7 +226,7 @@ class PacketAuthoringServiceTest {
         packet.getTossups().add(ContainsTossup.builder().order(0).tossup(tossup("t1", "Q1")).build());
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.addTossupToPacket("p", new TossupInput("Q0", "A0", null), 0);
+        Packet result = service.addTossupToPacket("p", new TossupInput("Q0", "A0", null), 0, null);
 
         assertThat(tossupIdsInOrder(result)).hasSize(2);
         assertThat(result.getTossups().stream()
@@ -241,7 +239,7 @@ class PacketAuthoringServiceTest {
     void addTossup_blankQuestion_throws() {
         Packet packet = packetWithId("p");
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
-        assertThatThrownBy(() -> service.addTossupToPacket("p", new TossupInput("", "A", null), null))
+        assertThatThrownBy(() -> service.addTossupToPacket("p", new TossupInput("", "A", null), null, null))
                 .isInstanceOf(InvalidApiRequestException.class);
     }
 
@@ -249,7 +247,7 @@ class PacketAuthoringServiceTest {
     void updateTossup_setsFields() {
         Tossup t = tossup("t1", "old");
         when(tossupRepository.findById("t1")).thenReturn(Optional.of(t));
-        Tossup result = service.updateTossup("t1", new TossupInput("new", "ans", null));
+        Tossup result = service.updateTossup("t1", new TossupInput("new", "ans", null), null);
         assertThat(result.getQuestion()).isEqualTo("new");
         assertThat(result.getAnswer()).isEqualTo("ans");
     }
@@ -262,7 +260,7 @@ class PacketAuthoringServiceTest {
         packet.getTossups().add(ContainsTossup.builder().order(2).tossup(tossup("t3", "Q3")).build());
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.removeTossupFromPacket("p", "t2");
+        Packet result = service.removeTossupFromPacket("p", "t2", null);
 
         assertThat(tossupIdsInOrder(result)).containsExactly("t1", "t3");
         assertThat(tossupOrders(result)).containsExactly(0, 1);
@@ -273,7 +271,7 @@ class PacketAuthoringServiceTest {
     void removeTossup_notInPacket_throwsNotFound() {
         Packet packet = packetWithId("p");
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
-        assertThatThrownBy(() -> service.removeTossupFromPacket("p", "ghost"))
+        assertThatThrownBy(() -> service.removeTossupFromPacket("p", "ghost", null))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -285,7 +283,7 @@ class PacketAuthoringServiceTest {
         packet.getTossups().add(ContainsTossup.builder().order(2).tossup(tossup("t3", "Q3")).build());
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.reorderTossup("p", "t3", 0);
+        Packet result = service.reorderTossup("p", "t3", 0, null);
 
         assertThat(tossupIdsInOrder(result)).containsExactly("t3", "t1", "t2");
         assertThat(tossupOrders(result)).containsExactly(0, 1, 2);
@@ -298,7 +296,7 @@ class PacketAuthoringServiceTest {
         packet.getTossups().add(ContainsTossup.builder().order(1).tossup(tossup("t2", "Q2")).build());
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.reorderTossup("p", "t1", 99);
+        Packet result = service.reorderTossup("p", "t1", 99, null);
 
         assertThat(tossupIdsInOrder(result)).containsExactly("t2", "t1");
     }
@@ -312,7 +310,7 @@ class PacketAuthoringServiceTest {
 
         BonusInput input = new BonusInput("Preamble", null,
                 List.of(new BonusPartInput("BQ1", "BA1"), new BonusPartInput("BQ2", "BA2")));
-        Packet result = service.addBonusToPacket("p", input, null);
+        Packet result = service.addBonusToPacket("p", input, null, null);
 
         assertThat(result.getBonuses()).hasSize(1);
         ContainsBonus cb = result.getBonuses().get(0);
@@ -330,7 +328,7 @@ class PacketAuthoringServiceTest {
         packet.getBonuses().add(new ContainsBonus(0, existing));
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.addBonusToPacket("p", new BonusInput("P2", null, null), null);
+        Packet result = service.addBonusToPacket("p", new BonusInput("P2", null, null), null, null);
 
         assertThat(result.getBonuses()).hasSize(2);
         assertThat(result.getBonuses().stream().map(ContainsBonus::getOrder))
@@ -348,7 +346,7 @@ class PacketAuthoringServiceTest {
         packet.getBonuses().add(new ContainsBonus(1, b2));
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
-        Packet result = service.removeBonusFromPacket("p", "b1");
+        Packet result = service.removeBonusFromPacket("p", "b1", null);
 
         assertThat(result.getBonuses()).hasSize(1);
         assertThat(result.getBonuses().get(0).getOrder()).isZero();
@@ -360,7 +358,7 @@ class PacketAuthoringServiceTest {
     void updateBonus_missing_throwsNotFound() {
         when(bonusRepository.findById("b")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.updateBonus("b",
-                new com.soulsoftworks.sockbowlquestions.api.input.BonusUpdateInput("x", null)))
+                new com.soulsoftworks.sockbowlquestions.api.input.BonusUpdateInput("x", null), null))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -373,7 +371,7 @@ class PacketAuthoringServiceTest {
         bonus.setBonusParts(new ArrayList<>(List.of(new HasBonusPart(0, partWithId("bp1")))));
         when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
 
-        Bonus result = service.addBonusPart("b1", new BonusPartInput("Q", "A"), null);
+        Bonus result = service.addBonusPart("b1", new BonusPartInput("Q", "A"), null, null);
 
         assertThat(result.getBonusParts()).hasSize(2);
         assertThat(result.getBonusParts().get(1).getOrder()).isEqualTo(1);
@@ -388,7 +386,7 @@ class PacketAuthoringServiceTest {
                 new HasBonusPart(1, partWithId("bp2")))));
         when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
 
-        Bonus result = service.removeBonusPart("b1", "bp1");
+        Bonus result = service.removeBonusPart("b1", "bp1", null);
 
         assertThat(result.getBonusParts()).hasSize(1);
         assertThat(result.getBonusParts().get(0).getOrder()).isZero();
@@ -406,7 +404,7 @@ class PacketAuthoringServiceTest {
                 new HasBonusPart(2, partWithId("bp3")))));
         when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
 
-        Bonus result = service.reorderBonusPart("b1", "bp3", 0);
+        Bonus result = service.reorderBonusPart("b1", "bp3", 0, null);
 
         assertThat(result.getBonusParts().stream().map(r -> r.getBonusPart().getId()))
                 .containsExactly("bp3", "bp1", "bp2");
@@ -431,7 +429,7 @@ class PacketAuthoringServiceTest {
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
 
         GenerateTossupInput input = new GenerateTossupInput("Science", null, null, null, null);
-        assertThatThrownBy(() -> service.generateAndAddTossup("p", input, null))
+        assertThatThrownBy(() -> service.generateAndAddTossup("p", input, null, null))
                 .isInstanceOf(InvalidApiRequestException.class);
         verify(questionGenerationService, never()).generateTossup(any(), any(), anyList(), any());
     }
@@ -446,26 +444,10 @@ class PacketAuthoringServiceTest {
                 .thenReturn(generated);
 
         GenerateTossupInput input = new GenerateTossupInput("Science", "context", null, null, null);
-        Packet result = service.generateAndAddTossup("p", input, null);
+        Packet result = service.generateAndAddTossup("p", input, null, null);
 
         assertThat(result.getTossups()).hasSize(1);
         assertThat(result.getTossups().get(0).getTossup().getQuestion()).isEqualTo("Generated?");
         assertThat(result.getTossups().get(0).getOrder()).isZero();
-    }
-
-    /* ------------------------------- Taxonomy ------------------------------ */
-
-    @Test
-    void createSubcategory_missingCategory_throwsNotFound() {
-        when(categoryRepository.findById("c")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.createSubcategory("Bio", "c"))
-                .isInstanceOf(ResourceNotFoundException.class);
-    }
-
-    @Test
-    void createDifficulty_persists() {
-        when(difficultyRepository.save(any(Difficulty.class))).thenAnswer(inv -> inv.getArgument(0));
-        Difficulty result = service.createDifficulty("Hard");
-        assertThat(result.getName()).isEqualTo("Hard");
     }
 }
