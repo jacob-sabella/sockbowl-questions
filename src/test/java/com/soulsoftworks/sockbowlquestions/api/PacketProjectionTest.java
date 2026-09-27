@@ -31,7 +31,7 @@ class PacketProjectionTest {
 
         // The projection: answers gone, questions and structure kept, flag set.
         assertThat(projected).isNotSameAs(original);
-        assertThat(projected.isAnswersRedacted()).isTrue();
+        assertThat(projected.getAnswersRedacted()).isTrue();
         assertThat(projected.getId()).isEqualTo("p1");
         assertThat(projected.getName()).isEqualTo("Packet");
         assertThat(projected.getOwnerId()).isEqualTo("owner");
@@ -56,7 +56,7 @@ class PacketProjectionTest {
                 });
 
         // The original (possibly a managed entity) is unchanged.
-        assertThat(original.isAnswersRedacted()).isFalse();
+        assertThat(original.getAnswersRedacted()).isNotEqualTo(Boolean.TRUE);
         assertThat(original.getTossups().get(0).getTossup().getAnswer()).isEqualTo("tossup answer");
         assertThat(original.getBonuses().get(0).getBonus().getBonusParts())
                 .extracting(hp -> hp.getBonusPart().getAnswer())
@@ -73,7 +73,7 @@ class PacketProjectionTest {
 
         assertThat(projected.getTossups()).isNull();
         assertThat(projected.getBonuses()).isNull();
-        assertThat(projected.isAnswersRedacted()).isTrue();
+        assertThat(projected.getAnswersRedacted()).isTrue();
         assertThat(PacketProjection.answerFree(null)).isNull();
     }
 
@@ -101,7 +101,7 @@ class PacketProjectionTest {
 
         Packet forAnonymous = PacketProjection.forCaller(authOn, anonymous, packet);
         assertThat(forAnonymous).isNotSameAs(packet);
-        assertThat(forAnonymous.isAnswersRedacted()).isTrue();
+        assertThat(forAnonymous.getAnswersRedacted()).isTrue();
 
         assertThat(PacketProjection.forCaller(authOff, anonymous, packet)).isSameAs(packet);
     }

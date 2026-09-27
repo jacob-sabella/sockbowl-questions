@@ -99,7 +99,7 @@ class PacketRepositoryVisibilityIT extends Neo4jContainerTestBase {
         assertThat(props).containsEntry("visibility", "PUBLISHED").doesNotContainKey("answersRedacted");
         Packet reloaded = repository.findById(saved.getId()).orElseThrow();
         assertThat(reloaded.getVisibility()).isEqualTo(PacketVisibility.PUBLISHED);
-        assertThat(reloaded.isAnswersRedacted()).isFalse();
+        assertThat(reloaded.getAnswersRedacted()).isNotEqualTo(Boolean.TRUE);
     }
 
     @SuppressWarnings("unchecked")

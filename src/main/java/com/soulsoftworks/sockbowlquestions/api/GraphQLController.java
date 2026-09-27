@@ -132,6 +132,12 @@ public class GraphQLController {
         return PacketVisibility.effective(packet.getVisibility());
     }
 
+    /** Non-null in the schema; only answer-free projections carry {@code true}. */
+    @SchemaMapping(typeName = "Packet", field = "answersRedacted")
+    public boolean answersRedacted(Packet packet) {
+        return Boolean.TRUE.equals(packet.getAnswersRedacted());
+    }
+
     /** Read-only projection of a packet's creator; null for anonymous/legacy packets. */
     @SchemaMapping(typeName = "Packet", field = "owner")
     public PacketOwnerDto owner(Packet packet) {

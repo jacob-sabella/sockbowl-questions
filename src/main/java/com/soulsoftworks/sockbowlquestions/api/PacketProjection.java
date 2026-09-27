@@ -20,7 +20,7 @@ import java.util.function.UnaryOperator;
  * <p>A caller who may read the packet in full gets it as loaded. Everyone else gets
  * an <em>answer-free projection</em>: a deep copy whose {@link Tossup#getAnswer()} and
  * {@link BonusPart#getAnswer()} are {@code null} and whose
- * {@link Packet#isAnswersRedacted()} is {@code true}. Question text is kept.
+ * {@link Packet#getAnswersRedacted()} is {@code true}. Question text is kept.
  *
  * <p>The projection never mutates its input. The packet may be a managed entity
  * (loaded through a repository and saved later in the same request), so every
