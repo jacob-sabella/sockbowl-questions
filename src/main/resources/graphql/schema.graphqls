@@ -21,6 +21,8 @@ type Mutation {
   renamePacket(id: ID!, name: String!): Packet!
   setPacketDifficulty(id: ID!, difficultyId: ID!): Packet!
   deletePacket(id: ID!): Boolean!
+  """Publish or unpublish a packet. Requires packet:update and ownership (or packet:manage-any)."""
+  setPacketVisibility(id: ID!, visibility: PacketVisibility!): Packet!
 
   # --- Tossups (order is optional; null/oversized appends) ---
   addTossupToPacket(packetId: ID!, input: TossupInput!, order: Int): Packet!
@@ -119,6 +121,16 @@ type UsesPacketAtRound {
 }
 
 """
+Who may read a packet. DRAFT: only the owner, packet:manage-any and the game
+service. PUBLISHED: everyone; callers without full-read rights get the packet
+with answers removed. Packets created before visibility existed read as PUBLISHED.
+"""
+enum PacketVisibility {
+  DRAFT
+  PUBLISHED
+}
+
+"""
 Packet Node
 """
 type Packet {
@@ -128,6 +140,9 @@ type Packet {
   tossups: [ContainsTossup]
   bonuses: [ContainsBonus]
   owner: PacketOwner
+  visibility: PacketVisibility!
+  """True when answers were removed because the caller may not read them."""
+  answersRedacted: Boolean!
 }
 
 """

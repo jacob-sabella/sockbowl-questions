@@ -10,6 +10,7 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
@@ -53,6 +54,13 @@ public class PacketAuthoringController {
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#id)")
     public Packet setPacketDifficulty(@Argument String id, @Argument String difficultyId) {
         return authoringService.setPacketDifficulty(id, difficultyId);
+    }
+
+    /** Publish or unpublish a packet (D2). M3 adds the UI toggle; M2 ships the API. */
+    @MutationMapping
+    @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#id)")
+    public Packet setPacketVisibility(@Argument String id, @Argument PacketVisibility visibility) {
+        return authoringService.setPacketVisibility(id, visibility);
     }
 
     @MutationMapping

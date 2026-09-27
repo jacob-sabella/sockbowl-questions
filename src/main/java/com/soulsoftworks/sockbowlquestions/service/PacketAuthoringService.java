@@ -15,6 +15,7 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
@@ -86,7 +87,9 @@ public class PacketAuthoringService {
         String name = requireText(input.name(), "Packet name");
         Packet.PacketBuilder builder = Packet.builder().name(name)
                 .ownerId(ownerId)
-                .ownerDisplayName(ownerDisplayName);
+                .ownerDisplayName(ownerDisplayName)
+                // D2: new packets start as drafts; the owner publishes via setPacketVisibility.
+                .visibility(PacketVisibility.defaultForNewPackets());
         if (input.difficultyId() != null && !input.difficultyId().isBlank()) {
             builder.difficulty(requireDifficulty(input.difficultyId()));
         }
@@ -97,6 +100,20 @@ public class PacketAuthoringService {
     public Packet renamePacket(String id, String name) {
         Packet packet = requirePacket(id);
         packet.setName(requireText(name, "Packet name"));
+        return packetRepository.save(packet);
+    }
+
+    /**
+     * Change who may read a packet (D2). Authorization (packet:update plus ownership or
+     * manage-any) is enforced on the GraphQL mutation.
+     */
+    @Transactional
+    public Packet setPacketVisibility(String id, PacketVisibility visibility) {
+        if (visibility == null) {
+            throw new InvalidApiRequestException("Packet visibility is required");
+        }
+        Packet packet = requirePacket(id);
+        packet.setVisibility(visibility);
         return packetRepository.save(packet);
     }
 

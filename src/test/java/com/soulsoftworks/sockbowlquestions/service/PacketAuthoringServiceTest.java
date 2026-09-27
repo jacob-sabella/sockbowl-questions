@@ -13,6 +13,7 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
@@ -118,6 +119,38 @@ class PacketAuthoringServiceTest {
         Packet result = service.createPacket(new CreatePacketInput("My Packet", null), null, null);
         assertThat(result.getOwnerId()).isNull();
         assertThat(result.getOwnerDisplayName()).isNull();
+    }
+
+    @Test
+    void createPacket_defaultsToDraft() {
+        Packet result = service.createPacket(new CreatePacketInput("My Packet", null), "sub-1", "author1");
+        assertThat(result.getVisibility()).isEqualTo(PacketVisibility.DRAFT);
+    }
+
+    @Test
+    void setPacketVisibility_updatesAndSaves() {
+        Packet packet = packetWithId("p1");
+        packet.setVisibility(PacketVisibility.DRAFT);
+        when(packetRepository.findById("p1")).thenReturn(Optional.of(packet));
+
+        Packet result = service.setPacketVisibility("p1", PacketVisibility.PUBLISHED);
+
+        assertThat(result.getVisibility()).isEqualTo(PacketVisibility.PUBLISHED);
+        verify(packetRepository).save(packet);
+    }
+
+    @Test
+    void setPacketVisibility_missingPacket_throwsNotFound() {
+        when(packetRepository.findById("nope")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.setPacketVisibility("nope", PacketVisibility.PUBLISHED))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void setPacketVisibility_null_isRejected() {
+        assertThatThrownBy(() -> service.setPacketVisibility("p1", null))
+                .isInstanceOf(InvalidApiRequestException.class);
+        verify(packetRepository, never()).save(any(Packet.class));
     }
 
     @Test
