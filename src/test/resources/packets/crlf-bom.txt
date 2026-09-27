@@ -1,0 +1,16 @@
+﻿CRLF Packet
+
+TOSSUPS
+
+1. This tossup line ends with a carriage return and uses CRLF endings throughout.
+ANSWER: crlf works <Science - Chemistry>
+
+BONUSES
+
+1. A bonus preamble line, also CRLF-terminated, for ten points each.
+[10] A first part question, CRLF-terminated.
+ANSWER: first
+[10] A second part question, CRLF-terminated.
+ANSWER: second
+[10] A third part question, CRLF-terminated.
+ANSWER: third <Science - Chemistry>
