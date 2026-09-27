@@ -1,5 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.support.KeycloakAuthITBase;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.neo4j.core.Neo4jClient;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -72,7 +74,8 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
                 "question", "Q?", "answer", answer,
                 "category", "Q3ReadCat", "subcategory", "Q3ReadSub", "remoteId", "", "order", 0));
         return packetRepository.batchCreatePacket(NAME_PREFIX + searchToken + "-" + suffix, "Easy", tossups, List.of(),
-                ownerId, "owner-" + ownerId, visibility.name(), null);
+                ownerId, "owner-" + ownerId, visibility.name(), null,
+                ownerId == null ? "anonymous" : ownerId, Instant.now().toString(), ContentSource.AUTHORED.name());
     }
 
     /* ------------------------------- getPacketById ------------------------------- */

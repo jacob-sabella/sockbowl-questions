@@ -1,6 +1,7 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
 import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
@@ -19,6 +20,7 @@ import org.springframework.graphql.ResponseError;
 import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -90,7 +92,8 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
                 "preamble", "Pre", "category", "Q3MutCat", "subcategory", "Q3MutSub", "remoteId", "", "order", 0,
                 "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0))));
         String packetId = packetRepository.batchCreatePacket(uniqueName(), "Easy", tossups, bonuses,
-                ownerId, ownerId == null ? null : "owner-" + ownerId, PacketVisibility.DRAFT.name(), null);
+                ownerId, ownerId == null ? null : "owner-" + ownerId, PacketVisibility.DRAFT.name(), null,
+                ownerId == null ? "anonymous" : ownerId, Instant.now().toString(), ContentSource.AUTHORED.name());
         Packet loaded = packetRepository.findById(packetId).orElseThrow();
         var tossup = loaded.getTossups().get(0).getTossup();
         var bonus = loaded.getBonuses().get(0).getBonus();
