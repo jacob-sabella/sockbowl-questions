@@ -144,11 +144,21 @@ public class GraphQLController {
         return Boolean.TRUE.equals(packet.getAnswersRedacted());
     }
 
-    /** Read-only projection of a packet's creator; null for anonymous/legacy packets. */
+    /**
+     * Read-only projection of a packet's creator; null for anonymous/legacy packets.
+     *
+     * <p>{@code owner.id} is the creator's Keycloak {@code sub}, so it is only returned to
+     * callers who may read the packet in full ({@link PacketReadPolicy#canReadFull}: the
+     * owner, {@code packet:manage-any}, the game service token, or anyone when auth is
+     * off). Everyone else gets the display name with a null id, so a PUBLISHED packet,
+     * or a list of them, never enumerates its authors' subjects (Q-M2-01).
+     */
     @SchemaMapping(typeName = "Packet", field = "owner")
     public PacketOwnerDto owner(Packet packet) {
-        return packet.getOwnerId() == null
-                ? null
-                : new PacketOwnerDto(packet.getOwnerId(), packet.getOwnerDisplayName());
+        if (packet.getOwnerId() == null) {
+            return null;
+        }
+        boolean showId = readPolicy.canReadFull(PacketReadPolicy.currentAuthentication(), packet);
+        return new PacketOwnerDto(showId ? packet.getOwnerId() : null, packet.getOwnerDisplayName());
     }
 }

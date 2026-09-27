@@ -152,7 +152,9 @@ type Packet {
 
 """
 Read-only view of a packet's creator. Null for anonymous/legacy packets
-(guest-generated, or created before ownership tracking existed).
+(guest-generated, or created before ownership tracking existed). id is the
+creator's account id and is null unless the caller may read the packet in full
+(its owner, packet:manage-any, the game service, or anyone with auth off).
 """
 type PacketOwner {
   id: String

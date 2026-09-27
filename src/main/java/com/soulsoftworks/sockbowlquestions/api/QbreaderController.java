@@ -148,6 +148,15 @@ public class QbreaderController {
                                 Boolean standardOnly, Integer tossupCount, Integer bonusCount,
                                 String name, List<String> excludeRemoteIds, Boolean balanced) {}
 
+    /**
+     * The created packet's id and name, plus the qbreader ids of the bank questions used,
+     * which ng passes back as {@code excludeRemoteIds} on the next import so a match
+     * doesn't repeat questions. Returned for EPHEMERAL packets too (accepted risk, Q-M2-04):
+     * they identify questions from the public qbreader set, whose text and answers are
+     * already public on qbreader itself, so no Sockbowl-private content is exposed. A
+     * caller determined to look the answers up there could, but that caller is the one
+     * generating the game (the host), and the ids don't make the packet readable here.
+     */
     public record ImportResult(String id, String name, List<String> usedRemoteIds) {
         static ImportResult from(ImportOutcome o) {
             return new ImportResult(o.packet().getId(), o.packet().getName(), o.usedRemoteIds());
