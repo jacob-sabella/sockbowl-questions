@@ -12,10 +12,8 @@ import org.springframework.stereotype.Controller;
 /**
  * GraphQL taxonomy mutations (PB-10, D4). Every operation requires
  * {@code taxonomy:manage} (moderator and admin after the D4 move). Moved out of
- * {@link PacketAuthoringController} in M3 Q1 with the same rules.
- *
- * <p>TODO(Q4): {@code renameCategory/renameSubcategory/renameDifficulty} and
- * {@code mergeCategories/mergeSubcategories/mergeDifficulties}.
+ * {@link PacketAuthoringController} in M3 Q1 with the same rules; Q4 adds rename and
+ * merge, implemented by {@link TaxonomyService}.
  */
 @Controller
 public class TaxonomyController {
@@ -42,5 +40,41 @@ public class TaxonomyController {
     @PreAuthorize("hasAuthority('taxonomy:manage')")
     public Subcategory createSubcategory(@Argument String name, @Argument String categoryId) {
         return taxonomyService.createSubcategory(name, categoryId);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Category renameCategory(@Argument String id, @Argument String name) {
+        return taxonomyService.renameCategory(id, name);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Subcategory renameSubcategory(@Argument String id, @Argument String name) {
+        return taxonomyService.renameSubcategory(id, name);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Difficulty renameDifficulty(@Argument String id, @Argument String name) {
+        return taxonomyService.renameDifficulty(id, name);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Category mergeCategories(@Argument String sourceId, @Argument String targetId) {
+        return taxonomyService.mergeCategories(sourceId, targetId);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Subcategory mergeSubcategories(@Argument String sourceId, @Argument String targetId) {
+        return taxonomyService.mergeSubcategories(sourceId, targetId);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Difficulty mergeDifficulties(@Argument String sourceId, @Argument String targetId) {
+        return taxonomyService.mergeDifficulties(sourceId, targetId);
     }
 }
