@@ -24,6 +24,33 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
     List<Packet> searchByName(String name);
 
     /**
+     * Ids of every listed packet, for callers who may read every packet in full: all
+     * packets except those whose effective visibility is unlisted (game-only EPHEMERAL
+     * packets, D15). Returns ids so the caller can load full packets with {@code findAllById}.
+     *
+     * @param unlistedVisibilities names of the {@code PacketVisibility} values never listed
+     * @param legacyVisibility     the visibility a node without one counts as
+     */
+    @Query("""
+            MATCH (p:Packet)
+            WHERE NOT coalesce(p.visibility, $legacyVisibility) IN $unlistedVisibilities
+            RETURN p.id
+            """)
+    List<String> findListedPacketIds(@Param("unlistedVisibilities") List<String> unlistedVisibilities,
+                                     @Param("legacyVisibility") String legacyVisibility);
+
+    /** {@link #searchByName} without the unlisted (game-only) packets; see {@link #findListedPacketIds}. */
+    @Query("""
+            MATCH (p:Packet)
+            WHERE toLower(p.name) CONTAINS toLower($name)
+              AND NOT coalesce(p.visibility, $legacyVisibility) IN $unlistedVisibilities
+            RETURN p
+            """)
+    List<Packet> searchListedByName(@Param("name") String name,
+                                    @Param("unlistedVisibilities") List<String> unlistedVisibilities,
+                                    @Param("legacyVisibility") String legacyVisibility);
+
+    /**
      * Ids of the packets a caller without full-read rights may see (D2): those whose
      * effective visibility is publicly readable, plus the caller's own packets.
      * Returns ids so the caller can load full packets with {@code findAllById}.

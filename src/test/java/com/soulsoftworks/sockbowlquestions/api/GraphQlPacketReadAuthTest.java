@@ -87,24 +87,31 @@ class GraphQlPacketReadAuthTest {
     private Packet draft;
     private Packet published;
     private Packet legacy;
+    private Packet ephemeral;
 
     @BeforeEach
     void setUp() {
         draft = packet("draft", PacketVisibility.DRAFT);
         published = packet("pub", PacketVisibility.PUBLISHED);
         legacy = packet("legacy", null);
-        for (Packet p : List.of(draft, published, legacy)) {
+        ephemeral = packet("eph", PacketVisibility.EPHEMERAL);
+        ephemeral.setOwnerId(null);
+        for (Packet p : List.of(draft, published, legacy, ephemeral)) {
             when(packetRepository.findById(p.getId())).thenReturn(Optional.of(p));
         }
-        when(packetRepository.findAll()).thenReturn(List.of(draft, published, legacy));
+        when(packetRepository.findAll()).thenReturn(List.of(draft, published, legacy, ephemeral));
+        // What the unfiltered-by-owner query returns for callers who read every packet.
+        // It should leave EPHEMERAL out; the controller re-checks in Java regardless.
+        when(packetRepository.findListedPacketIds(any(), any())).thenReturn(List.of("draft", "pub", "legacy", "eph"));
         // What the Cypher filter returns for callers without full-read rights. The
         // controller re-checks in Java, so a draft slipping through must still be dropped.
         when(packetRepository.findVisiblePacketIds(any(), any(), any()))
                 .thenReturn(List.of("draft", "pub", "legacy"));
-        when(packetRepository.findAllById(anyIterable())).thenReturn(List.of(draft, published, legacy));
+        when(packetRepository.findAllById(anyIterable())).thenReturn(List.of(draft, published, legacy, ephemeral));
         when(packetRepository.searchVisibleByName(any(), any(), any(), any()))
                 .thenReturn(List.of(draft, published));
-        when(packetRepository.searchByName(any())).thenReturn(List.of(draft, published));
+        when(packetRepository.searchByName(any())).thenReturn(List.of(draft, published, ephemeral));
+        when(packetRepository.searchListedByName(any(), any(), any())).thenReturn(List.of(draft, published, ephemeral));
     }
 
     /* ------------------------------ getAllPackets ------------------------------ */
@@ -149,7 +156,9 @@ class GraphQlPacketReadAuthTest {
                 .andExpect(jsonPath("$.data.getAllPackets[*].answersRedacted", everyItem(org.hamcrest.Matchers.is(false))))
                 .andExpect(jsonPath("$.data.getAllPackets[*].bonuses[*].bonus.bonusParts[*].bonusPart.answer",
                         everyItemIs("BA")));
-        verify(packetRepository).findAll();
+        // Every listed packet, but never the game-only EPHEMERAL one (D15).
+        verify(packetRepository).findListedPacketIds(List.of("EPHEMERAL"), "PUBLISHED");
+        verify(packetRepository, never()).findAll();
         verify(packetRepository, never()).findVisiblePacketIds(any(), any(), any());
     }
 
@@ -213,7 +222,81 @@ class GraphQlPacketReadAuthTest {
                 .andExpect(jsonPath("$.data.searchPacketsByName[*].id", contains("draft", "pub")))
                 .andExpect(jsonPath("$.data.searchPacketsByName[*].answersRedacted",
                         everyItem(org.hamcrest.Matchers.is(false))));
-        verify(packetRepository).searchByName("p");
+        verify(packetRepository).searchListedByName("p", List.of("EPHEMERAL"), "PUBLISHED");
+        verify(packetRepository, never()).searchByName(any());
+    }
+
+    /* ------------------------------ EPHEMERAL (D15) ------------------------------ */
+
+    @Test
+    void ephemeralIsNeverListedOrSearchedForAnyone() throws Exception {
+        for (RequestPostProcessor[] who : List.of(new RequestPostProcessor[0],
+                new RequestPostProcessor[]{as("player-sub", "game:host")},
+                new RequestPostProcessor[]{as("admin-sub", "packet:manage-any")},
+                new RequestPostProcessor[]{as("svc", "packet:read", "packet:read-answers")})) {
+            graphql("{ getAllPackets { id } }", who)
+                    .andExpect(jsonPath("$.errors").doesNotExist())
+                    .andExpect(jsonPath("$.data.getAllPackets[*].id", everyItem(org.hamcrest.Matchers.not("eph"))));
+            graphql("{ searchPacketsByName(name: \"p\") { id } }", who)
+                    .andExpect(jsonPath("$.errors").doesNotExist())
+                    .andExpect(jsonPath("$.data.searchPacketsByName[*].id", everyItem(org.hamcrest.Matchers.not("eph"))));
+        }
+    }
+
+    @Test
+    void ephemeralIsReadableInFullOnlyWithTheServiceToken() throws Exception {
+        graphql("{ getPacketById(id: \"eph\") { " + FIELDS + " } }", as("svc", "packet:read", "packet:read-answers"))
+                .andExpect(jsonPath("$.errors").doesNotExist())
+                .andExpect(jsonPath("$.data.getPacketById.visibility").value("EPHEMERAL"))
+                .andExpect(jsonPath("$.data.getPacketById.answersRedacted").value(false))
+                .andExpect(jsonPath("$.data.getPacketById.tossups[0].tossup.answer").value("A"));
+
+        // Not even manage-any, and no one else can tell it exists.
+        for (RequestPostProcessor[] who : List.of(new RequestPostProcessor[0],
+                new RequestPostProcessor[]{as("player-sub", "game:host")},
+                new RequestPostProcessor[]{as("author2-sub", "packet:create", "packet:update")},
+                new RequestPostProcessor[]{as("admin-sub", "packet:manage-any", "packet:update")})) {
+            graphql("{ getPacketById(id: \"eph\") { id } }", who)
+                    .andExpect(jsonPath("$.errors").doesNotExist())
+                    .andExpect(jsonPath("$.data.getPacketById").value(nullValue()));
+        }
+    }
+
+    @Test
+    void ephemeralIsNotEditableEvenWithManageAny() throws Exception {
+        String rename = "mutation { renamePacket(id: \"eph\", name: \"x\") { id } }";
+        String publish = "mutation { setPacketVisibility(id: \"eph\", visibility: PUBLISHED) { id } }";
+        RequestPostProcessor admin = as("admin-sub", "packet:update", "packet:delete", "packet:manage-any");
+
+        graphql(rename, admin).andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
+        graphql(publish, admin).andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
+        verify(authoringService, never()).renamePacket(any(), any());
+        verify(authoringService, never()).setPacketVisibility(any(), any());
+    }
+
+    @Test
+    void ephemeralMayBeDeletedOnlyWithManageAny() throws Exception {
+        String delete = "mutation { deletePacket(id: \"eph\") }";
+        when(authoringService.deletePacket("eph")).thenReturn(true);
+
+        graphql(delete, as("author-sub", "packet:delete", "packet:update"))
+                .andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
+        verify(authoringService, never()).deletePacket(any());
+
+        graphql(delete, as("admin-sub", "packet:delete", "packet:manage-any"))
+                .andExpect(jsonPath("$.errors").doesNotExist())
+                .andExpect(jsonPath("$.data.deletePacket").value(true));
+        verify(authoringService).deletePacket("eph");
+    }
+
+    @Test
+    void ownerMayStillDeleteOwnDraft() throws Exception {
+        when(authoringService.deletePacket("draft")).thenReturn(true);
+        graphql("mutation { deletePacket(id: \"draft\") }", as(OWNER, "packet:delete"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        graphql("mutation { deletePacket(id: \"draft\") }", as("author2-sub", "packet:delete"))
+                .andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
+        verify(authoringService).deletePacket("draft");
     }
 
     /* ---------------------------- setPacketVisibility ---------------------------- */

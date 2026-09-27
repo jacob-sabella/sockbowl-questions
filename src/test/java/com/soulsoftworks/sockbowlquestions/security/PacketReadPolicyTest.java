@@ -27,7 +27,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * D2 read matrix: caller (anonymous, player, non-owner author, owner, manage-any,
- * service token) × visibility (DRAFT, PUBLISHED, legacy null), plus auth disabled.
+ * service token) × visibility (DRAFT, PUBLISHED, EPHEMERAL, legacy null), plus auth
+ * disabled.
  */
 class PacketReadPolicyTest {
 
@@ -52,6 +53,9 @@ class PacketReadPolicyTest {
             // PUBLISHED and legacy (null): everyone sees it; only full readers get answers.
             rows.add(Arguments.of(c, PacketVisibility.PUBLISHED, true, full));
             rows.add(Arguments.of(c, null, true, full));
+            // EPHEMERAL (D15): only the game service token, even if an owner were recorded.
+            boolean service = c == Caller.SERVICE_TOKEN;
+            rows.add(Arguments.of(c, PacketVisibility.EPHEMERAL, service, service));
         }
         return rows.stream();
     }
@@ -80,7 +84,8 @@ class PacketReadPolicyTest {
     static Stream<Arguments> allCallersAndVisibilities() {
         List<Arguments> rows = new ArrayList<>();
         for (Caller c : Caller.values()) {
-            for (PacketVisibility v : new PacketVisibility[]{PacketVisibility.DRAFT, PacketVisibility.PUBLISHED, null}) {
+            for (PacketVisibility v : new PacketVisibility[]{PacketVisibility.DRAFT, PacketVisibility.PUBLISHED,
+                    PacketVisibility.EPHEMERAL, null}) {
                 rows.add(Arguments.of(c, v));
             }
         }
@@ -111,6 +116,29 @@ class PacketReadPolicyTest {
             boolean expected = c == Caller.MANAGE_ANY || c == Caller.SERVICE_TOKEN;
             assertThat(authOn.canReadEveryPacket(auth(c))).as(c.name()).isEqualTo(expected);
         }
+    }
+
+    @Test
+    void ownerlessEphemeralIsHiddenFromManageAnyButReadableByTheServiceToken() {
+        Packet ephemeral = packet(PacketVisibility.EPHEMERAL, null);
+
+        assertThat(authOn.canSee(auth(Caller.MANAGE_ANY), ephemeral)).isFalse();
+        assertThat(authOn.canReadFull(auth(Caller.MANAGE_ANY), ephemeral)).isFalse();
+        assertThat(authOn.canSee(auth(Caller.ANONYMOUS), ephemeral)).isFalse();
+        assertThat(authOn.canReadFull(auth(Caller.SERVICE_TOKEN), ephemeral)).isTrue();
+    }
+
+    @Test
+    void onlyEphemeralIsUnlisted() {
+        assertThat(authOn.unlistedVisibilities()).containsExactly("EPHEMERAL");
+        assertThat(authOn.isListed(packet(PacketVisibility.EPHEMERAL, null))).isFalse();
+        assertThat(authOn.isListed(packet(PacketVisibility.DRAFT, OWNER))).isTrue();
+        assertThat(authOn.isListed(packet(PacketVisibility.PUBLISHED, OWNER))).isTrue();
+        assertThat(authOn.isListed(packet(null, OWNER))).isTrue();
+        assertThat(authOff.isListed(packet(PacketVisibility.EPHEMERAL, null))).isFalse();
+        assertThat(authOn.isListed(null)).isFalse();
+        // EPHEMERAL is not publicly readable either, so the public filter keeps it out too.
+        assertThat(authOn.publiclyReadableVisibilities()).containsExactly("PUBLISHED");
     }
 
     @Test

@@ -146,4 +146,63 @@ class PacketAuthorizationServiceTest {
 
         assertThat(service.canManageBonus("b1")).isFalse();
     }
+
+    /* ------------------------------ EPHEMERAL (D15) ------------------------------ */
+
+    private Packet ephemeral() {
+        Packet p = packetOwnedBy(null);
+        p.setVisibility(com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility.EPHEMERAL);
+        return p;
+    }
+
+    @Test
+    void ephemeralPacket_isNotManageableEvenWithManageAny() {
+        authenticateAs("sub-C", "packet:update", "packet:delete", "packet:manage-any");
+        when(packetRepository.findById("p1")).thenReturn(Optional.of(ephemeral()));
+
+        assertThat(service.canManage("p1")).isFalse();
+        assertThat(service.canManage(SecurityContextHolder.getContext().getAuthentication(), ephemeral())).isFalse();
+    }
+
+    @Test
+    void ephemeralPacket_viaTossupOrBonus_isNotManageableEvenWithManageAny() {
+        authenticateAs("sub-C", "packet:update", "packet:manage-any");
+        when(packetRepository.findByTossupId("t1")).thenReturn(Optional.of(ephemeral()));
+        when(packetRepository.findByBonusId("b1")).thenReturn(Optional.of(ephemeral()));
+
+        assertThat(service.canManageTossup("t1")).isFalse();
+        assertThat(service.canManageBonus("b1")).isFalse();
+    }
+
+    @Test
+    void ephemeralPacket_isDeletableOnlyWithManageAny() {
+        when(packetRepository.findById("p1")).thenReturn(Optional.of(ephemeral()));
+
+        authenticateAs("sub-B", "packet:delete", "packet:update");
+        assertThat(service.canDelete("p1")).isFalse();
+
+        authenticateAs("sub-C", "packet:delete", "packet:manage-any");
+        assertThat(service.canDelete("p1")).isTrue();
+    }
+
+    @Test
+    void canDelete_followsOwnershipForOrdinaryPackets() {
+        when(packetRepository.findById("p1")).thenReturn(Optional.of(packetOwnedBy("sub-A")));
+
+        authenticateAs("sub-A", "packet:delete");
+        assertThat(service.canDelete("p1")).isTrue();
+        authenticateAs("sub-B", "packet:delete");
+        assertThat(service.canDelete("p1")).isFalse();
+        SecurityContextHolder.clearContext();
+        assertThat(service.canDelete("p1")).isFalse();
+    }
+
+    @Test
+    void manageAny_onMissingPacket_stillPassesSoTheMutationReportsNotFound() {
+        authenticateAs("sub-C", "packet:manage-any");
+        when(packetRepository.findById("gone")).thenReturn(Optional.empty());
+
+        assertThat(service.canManage("gone")).isTrue();
+        assertThat(service.canDelete("gone")).isTrue();
+    }
 }

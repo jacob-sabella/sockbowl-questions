@@ -58,9 +58,11 @@ class GraphQlPacketReadAuthOffTest {
     void anonymousReadsEverythingWithAnswers() throws Exception {
         Packet draft = packet("draft", PacketVisibility.DRAFT);
         Packet published = packet("pub", PacketVisibility.PUBLISHED);
-        when(packetRepository.findAll()).thenReturn(List.of(draft, published));
+        when(packetRepository.findListedPacketIds(List.of("EPHEMERAL"), "PUBLISHED")).thenReturn(List.of("draft", "pub"));
+        when(packetRepository.findAllById(List.of("draft", "pub"))).thenReturn(List.of(draft, published));
         when(packetRepository.findById("draft")).thenReturn(Optional.of(draft));
-        when(packetRepository.searchByName("p")).thenReturn(List.of(draft, published));
+        when(packetRepository.searchListedByName("p", List.of("EPHEMERAL"), "PUBLISHED"))
+                .thenReturn(List.of(draft, published));
 
         graphql("{ getAllPackets { id answersRedacted tossups { tossup { answer } } } }")
                 .andExpect(jsonPath("$.data.getAllPackets[*].id", containsInAnyOrder("draft", "pub")))
@@ -74,6 +76,22 @@ class GraphQlPacketReadAuthOffTest {
 
         verify(packetRepository, never()).findVisiblePacketIds(any(), any(), any());
         verify(packetRepository, never()).searchVisibleByName(any(), any(), any(), any());
+    }
+
+    @Test
+    void ephemeralIsUnlistedButStillPlayableById() throws Exception {
+        // Auth off has no service token, so the game reads it like everyone else.
+        Packet ephemeral = packet("eph", PacketVisibility.EPHEMERAL);
+        ephemeral.setOwnerId(null);
+        when(packetRepository.findListedPacketIds(List.of("EPHEMERAL"), "PUBLISHED")).thenReturn(List.of("eph"));
+        when(packetRepository.findAllById(List.of("eph"))).thenReturn(List.of(ephemeral));
+        when(packetRepository.findById("eph")).thenReturn(Optional.of(ephemeral));
+
+        graphql("{ getAllPackets { id } }")
+                .andExpect(jsonPath("$.data.getAllPackets.length()").value(0));
+        graphql("{ getPacketById(id: \"eph\") { visibility tossups { tossup { answer } } } }")
+                .andExpect(jsonPath("$.data.getPacketById.visibility").value("EPHEMERAL"))
+                .andExpect(jsonPath("$.data.getPacketById.tossups[0].tossup.answer").value("A"));
     }
 
     private ResultActions graphql(String query) throws Exception {
