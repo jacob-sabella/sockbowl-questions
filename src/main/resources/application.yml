@@ -33,6 +33,22 @@ sockbowl:
       enabled: true
       interval: PT1H
       initial-delay: PT5M
+    # Authoring limits (M3, PacketLimitsProperties). Override with env vars via relaxed
+    # binding, e.g. SOCKBOWL_PACKET_LIMITS_NAME_MAX, SOCKBOWL_PACKET_IMPORT_MAX_BYTES.
+    limits:
+      name-max: 200
+      question-max: 4000        # tossup question / bonus part question
+      answer-max: 1000
+      preamble-max: 2000
+      max-tossups: 60
+      max-bonuses: 60
+      max-parts-per-bonus: 6
+      min-parts-per-bonus: 1    # hard floor; 3 is the D7 "expected" count (warning only)
+    import:
+      max-bytes: 524288         # 512 KiB of UTF-8 plaintext (D5 import)
+    taxonomy:
+      name-max: 100
+      dedupe-on-startup: false  # never destructive by default; use the admin merge action
   cors:
     # Comma-separated allowlist; wired to SOCKBOWL_ALLOWED_ORIGINS in compose.
     allowed-origins: "${SOCKBOWL_ALLOWED_ORIGINS:http://localhost,http://localhost:80}"
