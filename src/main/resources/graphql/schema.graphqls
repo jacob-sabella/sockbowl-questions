@@ -255,7 +255,7 @@ type BonusPart {
 extend type Query {
   """
   Paginated, answer-free packet summaries, filtered by the caller's read rights (D2).
-  size is capped at 100. TODO(Q5)
+  size is capped at 100.
   """
   packets(filter: PacketFilter, page: Int = 0, size: Int = 25): PacketPage!
   """Plaintext export (D5). Needs full read of the packet."""
