@@ -13,6 +13,7 @@ import com.soulsoftworks.sockbowlquestions.exception.ResourceNotFoundException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
@@ -89,7 +90,9 @@ public class PacketAuthoringService {
                 .ownerId(ownerId)
                 .ownerDisplayName(ownerDisplayName)
                 // D2: new packets start as drafts; the owner publishes via setPacketVisibility.
-                .visibility(PacketVisibility.defaultForNewPackets());
+                .visibility(PacketVisibility.defaultForNewPackets())
+                // D13, M4-PV-01: hand-authored through this API.
+                .source(ContentSource.AUTHORED);
         if (input.difficultyId() != null && !input.difficultyId().isBlank()) {
             builder.difficulty(requireDifficulty(input.difficultyId()));
         }
@@ -148,6 +151,8 @@ public class PacketAuthoringService {
                 .question(requireText(input.question(), "Tossup question"))
                 .answer(requireText(input.answer(), "Tossup answer"))
                 .subcategory(optionalSubcategory(input.subcategoryId()))
+                // D13, M4-PV-01: hand-authored through this API.
+                .source(ContentSource.AUTHORED)
                 .build();
 
         List<ContainsTossup> rels = sortedTossups(packet);
@@ -166,6 +171,9 @@ public class PacketAuthoringService {
         if (input.subcategoryId() != null) {
             tossup.setSubcategory(optionalSubcategory(input.subcategoryId()));
         }
+        // D13, M4-PV-01: a manual edit through this API makes the content AUTHORED
+        // from here on, whatever it started as (imported or AI-generated).
+        tossup.setSource(ContentSource.AUTHORED);
         return tossupRepository.save(tossup);
     }
 
@@ -211,6 +219,8 @@ public class PacketAuthoringService {
         bonus.setPreamble(input.preamble());
         bonus.setSubcategory(optionalSubcategory(input.subcategoryId()));
         bonus.setBonusParts(buildBonusParts(input.parts()));
+        // D13, M4-PV-01: hand-authored through this API.
+        bonus.setSource(ContentSource.AUTHORED);
 
         List<Bonus> ordered = orderedBonuses(packet);
         int idx = resolveInsertIndex(order, ordered.size());
@@ -226,6 +236,9 @@ public class PacketAuthoringService {
         if (input.subcategoryId() != null) {
             bonus.setSubcategory(optionalSubcategory(input.subcategoryId()));
         }
+        // D13, M4-PV-01: a manual edit through this API makes the content AUTHORED
+        // from here on, whatever it started as (imported or AI-generated).
+        bonus.setSource(ContentSource.AUTHORED);
         return bonusRepository.save(bonus);
     }
 
@@ -283,6 +296,9 @@ public class PacketAuthoringService {
                         "Bonus part " + bonusPartId + " is not part of bonus " + bonusId));
         part.setQuestion(requireText(input.question(), "Bonus part question"));
         part.setAnswer(requireText(input.answer(), "Bonus part answer"));
+        // D13, M4-PV-01: a manual edit through this API makes the content AUTHORED
+        // from here on, whatever it started as (imported or AI-generated).
+        part.setSource(ContentSource.AUTHORED);
         return bonusRepository.save(bonus);
     }
 
@@ -456,6 +472,8 @@ public class PacketAuthoringService {
         BonusPart part = new BonusPart();
         part.setQuestion(requireText(input.question(), "Bonus part question"));
         part.setAnswer(requireText(input.answer(), "Bonus part answer"));
+        // D13, M4-PV-01: hand-authored through this API.
+        part.setSource(ContentSource.AUTHORED);
         return part;
     }
 

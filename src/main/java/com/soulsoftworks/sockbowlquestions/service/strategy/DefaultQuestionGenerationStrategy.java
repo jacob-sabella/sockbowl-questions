@@ -5,6 +5,7 @@ import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
@@ -16,6 +17,7 @@ import com.soulsoftworks.sockbowlquestions.service.ChatClientFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -31,6 +33,14 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     private final ChatClientFactory chatClientFactory;
     private final AiPrompts aiPrompts;
     private final PacketRepository packetRepository;
+
+    /**
+     * The server's own default chat model name (D13, M4-PV-01), used to stamp
+     * {@code aiModel} when the caller didn't BYO a model via {@link AiRequestContext}.
+     * Falls back to whichever provider's {@code chat.options.model} is configured.
+     */
+    @Value("${spring.ai.openai.chat.options.model:${spring.ai.ollama.chat.options.model:unknown}}")
+    private String defaultChatModel;
 
     public DefaultQuestionGenerationStrategy(
             ChatClientFactory chatClientFactory,
@@ -142,6 +152,9 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 .bonuses(bonusList)
                 // D2: a freshly generated packet is a draft until its owner publishes it.
                 .visibility(PacketVisibility.defaultForNewPackets())
+                // D13, M4-PV-01: AI-generated content records which model made it.
+                .source(ContentSource.AI_GENERATED)
+                .aiModel(resolveModel(requestContext))
                 .build();
         packetRepository.save(packet);
 
@@ -248,6 +261,9 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         return Tossup.builder()
                 .question(response.question())
                 .answer(response.answer())
+                // D13, M4-PV-01: AI-generated content records which model made it.
+                .source(ContentSource.AI_GENERATED)
+                .aiModel(resolveModel(requestContext))
                 .build();
     }
 
@@ -363,18 +379,27 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         Objects.requireNonNull(response.part_c_question(), "Part C question cannot be null");
         Objects.requireNonNull(response.part_c_answer(), "Part C answer cannot be null");
 
+        // D13, M4-PV-01: AI-generated content records which model made it.
+        String resolvedModel = resolveModel(requestContext);
+
         // Create bonus parts
         BonusPart partA = new BonusPart();
         partA.setQuestion(response.part_a_question());
         partA.setAnswer(response.part_a_answer());
+        partA.setSource(ContentSource.AI_GENERATED);
+        partA.setAiModel(resolvedModel);
 
         BonusPart partB = new BonusPart();
         partB.setQuestion(response.part_b_question());
         partB.setAnswer(response.part_b_answer());
+        partB.setSource(ContentSource.AI_GENERATED);
+        partB.setAiModel(resolvedModel);
 
         BonusPart partC = new BonusPart();
         partC.setQuestion(response.part_c_question());
         partC.setAnswer(response.part_c_answer());
+        partC.setSource(ContentSource.AI_GENERATED);
+        partC.setAiModel(resolvedModel);
 
         // Create bonus with parts
         Bonus bonus = new Bonus();
@@ -384,8 +409,22 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 new HasBonusPart(2, partB),
                 new HasBonusPart(3, partC)
         ));
+        bonus.setSource(ContentSource.AI_GENERATED);
+        bonus.setAiModel(resolvedModel);
 
         return bonus;
+    }
+
+    /**
+     * The model name to stamp as {@code aiModel} (D13, M4-PV-01): the caller's BYO
+     * model when a custom API key/model was supplied, else the server's default.
+     */
+    private String resolveModel(AiRequestContext requestContext) {
+        if (requestContext != null && requestContext.hasCustomConfig()
+                && requestContext.getModel() != null && !requestContext.getModel().isBlank()) {
+            return requestContext.getModel();
+        }
+        return defaultChatModel;
     }
 
     /**
