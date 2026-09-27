@@ -1,0 +1,19 @@
+Fall Novice Packet 1
+
+TOSSUPS
+
+1. This man wrote (*) "Paradise Lost" and served as a secretary under Oliver Cromwell.
+ANSWER: <b>John Milton</b> (accept either name) <ED, Literature - British Literature>
+
+2. This element has atomic number 6 and forms the basis of organic chemistry.
+ANSWER: carbon [accept carbon-12; prompt on "C"] <Science - Chemistry>
+
+BONUSES
+
+1. For 10 points each, name these works of American literature.
+[10] This novel by Herman Melville concerns the hunt for a white whale.
+ANSWER: Moby-Dick
+[10e] This novel by Harper Lee concerns Scout Finch and Boo Radley.
+ANSWER: To Kill a Mockingbird
+[10h] This novel by Toni Morrison concerns a former slave haunted by her dead daughter.
+ANSWER: Beloved <ED, Literature - American Literature>

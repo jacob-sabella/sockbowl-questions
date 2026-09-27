@@ -1,0 +1,19 @@
+Scrimmage packet
+
+TOSSUPS
+
+1. Missing answer question with no ANSWER line at all just trailing text right here.
+
+2. This is a fine tossup with a normal answer and an unresolvable category tag.
+ANSWER: fine <Unknown Category - Nonexistent Subcat>
+
+4. This tossup jumps in numbering from 2 to 4, which should warn.
+ANSWER: gap
+
+BONUSES
+
+1. A bonus whose only part never gets an ANSWER line at all.
+[10] This part never gets an ANSWER line and just ends abruptly right here with no marker
+
+2. A bonus with zero part markers, only a preamble and a stray answer-shaped line.
+ANSWER: this line is not a part so the bonus has no parts at all
