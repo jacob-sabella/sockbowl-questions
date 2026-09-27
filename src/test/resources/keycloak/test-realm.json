@@ -27,13 +27,13 @@
         "name": "author",
         "composite": true,
         "composites": {
-          "realm": ["player", "packet:create", "packet:update", "packet:delete", "question:generate", "taxonomy:manage"]
+          "realm": ["player", "packet:create", "packet:update", "packet:delete", "question:generate"]
         }
       },
       {
         "name": "moderator",
         "composite": true,
-        "composites": { "realm": ["player", "user:ban"] }
+        "composites": { "realm": ["player", "user:ban", "taxonomy:manage"] }
       },
       {
         "name": "admin",
