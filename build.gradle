@@ -5,7 +5,14 @@ plugins {
 	id 'maven-publish'
 }
 
-ext { springAiVersion = "2.0.1" }
+ext {
+	springAiVersion = "2.0.1"
+	// Patch number of the models jar when published outside CI (publishToMavenLocal).
+	// Bump it whenever the models change so a mavenLocal build of sockbowl-game
+	// (which resolves sockbowlquestions-models:1.0.+) picks up the new jar.
+	// 1: M2 Q2 added Packet.visibility / PacketVisibility and Packet.answersRedacted.
+	modelsLocalRevision = "1"
+}
 
 group = 'com.soulsoftworks'
 version = resolveVersion(providers)
@@ -91,7 +98,7 @@ publishing {
 			artifactId = "sockbowlquestions-models"
 			// Stable, resolvable version for downstream consumers (decoupled from the
 			// app's main-<sha> version). SNAPSHOT is mutable on GitHub Packages.
-			version = (project.findProperty("modelsVersion") ?: "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}") as String
+			version = (project.findProperty("modelsVersion") ?: "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: modelsLocalRevision}") as String
 
 			artifact tasks.named("modelsJar").get()
 			artifact tasks.named("modelsSourcesJar").get()

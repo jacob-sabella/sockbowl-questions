@@ -102,6 +102,10 @@
         }
       }
     },
+    "PacketVisibility" : {
+      "type" : "string",
+      "enum" : [ "DRAFT", "PUBLISHED" ]
+    },
     "Subcategory" : {
       "type" : "object",
       "properties" : {
@@ -139,6 +143,9 @@
   },
   "type" : "object",
   "properties" : {
+    "answersRedacted" : {
+      "type" : "boolean"
+    },
     "bonuses" : {
       "type" : "array",
       "items" : {
@@ -154,11 +161,20 @@
     "name" : {
       "type" : "string"
     },
+    "ownerDisplayName" : {
+      "type" : "string"
+    },
+    "ownerId" : {
+      "type" : "string"
+    },
     "tossups" : {
       "type" : "array",
       "items" : {
         "$ref" : "#/$defs/ContainsTossup"
       }
+    },
+    "visibility" : {
+      "$ref" : "#/$defs/PacketVisibility"
     }
   },
   "title" : "Packet"
