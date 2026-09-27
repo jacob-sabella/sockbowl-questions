@@ -23,4 +23,11 @@ public class Category {
     @GeneratedValue(generatorClass = UUIDStringGenerator.class)
     private String id;
     private String name;
+
+    /**
+     * {@code toLower(trim(name))}, maintained by {@code TaxonomyService} (M3 Q4, D4).
+     * Not exposed in GraphQL; used for case-insensitive idempotent create, rename
+     * collision detection and the {@code category_namekey} uniqueness constraint.
+     */
+    private String nameKey;
 }
