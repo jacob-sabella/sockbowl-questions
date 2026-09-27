@@ -20,6 +20,11 @@ concurrency:
 # https://blog.gradle.org/github-actions-for-gradle-v6), while v5 is a
 # straightforward, MIT-licensed Node-24 bump from v4. Revisit if/when that
 # licensing changes or the caching component is specifically wanted.
+#
+# Every other action below is pinned to its exact release tag; gradle/actions
+# is the one deliberate exception, per the "v5 everywhere" M1 decision, so it
+# keeps tracking v5.x patch releases automatically instead of needing a bump
+# commit each time. This is intentional, not leftover inconsistency.
 
 jobs:
   build-and-publish:
