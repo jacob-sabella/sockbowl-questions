@@ -11,6 +11,7 @@ import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
 import com.soulsoftworks.sockbowlquestions.exception.ResourceNotFoundException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
@@ -128,6 +129,16 @@ class PacketAuthoringServiceTest {
     }
 
     @Test
+    void createPacket_setsAuthoredSource() {
+        // D13, M4-PV-01: createdBy/createdAt are populated by real SDN auditing
+        // (@EnableNeo4jAuditing), which this pure-Mockito test can't exercise; that's
+        // covered by ProvenanceAuditingIT against a real Neo4j. This only covers the
+        // explicit `source` field, which the service sets itself.
+        Packet result = service.createPacket(new CreatePacketInput("My Packet", null), "sub-1", "author1");
+        assertThat(result.getSource()).isEqualTo(ContentSource.AUTHORED);
+    }
+
+    @Test
     void setPacketVisibility_updatesAndSaves() {
         Packet packet = packetWithId("p1");
         packet.setVisibility(PacketVisibility.DRAFT);
@@ -220,6 +231,8 @@ class PacketAuthoringServiceTest {
 
         assertThat(tossupOrders(result)).containsExactly(0, 1);
         assertThat(result.getTossups().get(1).getTossup().getQuestion()).isEqualTo("Q2");
+        // D13, M4-PV-01
+        assertThat(result.getTossups().get(1).getTossup().getSource()).isEqualTo(ContentSource.AUTHORED);
     }
 
     @Test
@@ -252,6 +265,17 @@ class PacketAuthoringServiceTest {
         Tossup result = service.updateTossup("t1", new TossupInput("new", "ans", null));
         assertThat(result.getQuestion()).isEqualTo("new");
         assertThat(result.getAnswer()).isEqualTo("ans");
+    }
+
+    @Test
+    void updateTossup_marksAuthoredEvenIfPreviouslyImportedOrGenerated() {
+        // D13, M4-PV-01: a manual edit makes the content AUTHORED from here on,
+        // whatever it started as.
+        Tossup t = tossup("t1", "old");
+        t.setSource(ContentSource.QBREADER_IMPORT);
+        when(tossupRepository.findById("t1")).thenReturn(Optional.of(t));
+        Tossup result = service.updateTossup("t1", new TossupInput("new", "ans", null));
+        assertThat(result.getSource()).isEqualTo(ContentSource.AUTHORED);
     }
 
     @Test
@@ -320,6 +344,12 @@ class PacketAuthoringServiceTest {
         assertThat(cb.getBonus().getBonusParts()).hasSize(2);
         assertThat(cb.getBonus().getBonusParts().get(0).getOrder()).isZero();
         assertThat(cb.getBonus().getBonusParts().get(1).getOrder()).isEqualTo(1);
+        // D13, M4-PV-01: the bonus and every part it was created with are AUTHORED.
+        assertThat(cb.getBonus().getSource()).isEqualTo(ContentSource.AUTHORED);
+        assertThat(cb.getBonus().getBonusParts().get(0).getBonusPart().getSource())
+                .isEqualTo(ContentSource.AUTHORED);
+        assertThat(cb.getBonus().getBonusParts().get(1).getBonusPart().getSource())
+                .isEqualTo(ContentSource.AUTHORED);
     }
 
     @Test
@@ -364,6 +394,19 @@ class PacketAuthoringServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
+    @Test
+    void updateBonus_marksAuthoredEvenIfPreviouslyImportedOrGenerated() {
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        bonus.setSource(ContentSource.AI_GENERATED);
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+
+        Bonus result = service.updateBonus("b1",
+                new com.soulsoftworks.sockbowlquestions.api.input.BonusUpdateInput("New preamble", null));
+
+        assertThat(result.getSource()).isEqualTo(ContentSource.AUTHORED);
+    }
+
     /* ------------------------------ Bonus parts ---------------------------- */
 
     @Test
@@ -377,6 +420,24 @@ class PacketAuthoringServiceTest {
 
         assertThat(result.getBonusParts()).hasSize(2);
         assertThat(result.getBonusParts().get(1).getOrder()).isEqualTo(1);
+        // D13, M4-PV-01
+        assertThat(result.getBonusParts().get(1).getBonusPart().getSource()).isEqualTo(ContentSource.AUTHORED);
+    }
+
+    @Test
+    void updateBonusPart_marksAuthoredEvenIfPreviouslyImportedOrGenerated() {
+        Bonus bonus = new Bonus();
+        bonus.setId("b1");
+        BonusPart part = partWithId("bp1");
+        part.setSource(ContentSource.QBREADER_IMPORT);
+        bonus.setBonusParts(new ArrayList<>(List.of(new HasBonusPart(0, part))));
+        when(bonusRepository.findById("b1")).thenReturn(Optional.of(bonus));
+
+        Bonus result = service.updateBonusPart("b1", "bp1", new BonusPartInput("New Q", "New A"));
+
+        BonusPart updated = result.getBonusParts().get(0).getBonusPart();
+        assertThat(updated.getQuestion()).isEqualTo("New Q");
+        assertThat(updated.getSource()).isEqualTo(ContentSource.AUTHORED);
     }
 
     @Test
@@ -442,6 +503,10 @@ class PacketAuthoringServiceTest {
         Packet packet = packetWithId("p");
         when(packetRepository.findById("p")).thenReturn(Optional.of(packet));
         Tossup generated = tossup("gen", "Generated?");
+        // D13, M4-PV-01: the generation strategy is responsible for stamping
+        // source/aiModel; this service must pass them through unchanged.
+        generated.setSource(ContentSource.AI_GENERATED);
+        generated.setAiModel("test-model");
         when(questionGenerationService.generateTossup(anyString(), any(), anyList(), any(AiRequestContext.class)))
                 .thenReturn(generated);
 
@@ -451,6 +516,8 @@ class PacketAuthoringServiceTest {
         assertThat(result.getTossups()).hasSize(1);
         assertThat(result.getTossups().get(0).getTossup().getQuestion()).isEqualTo("Generated?");
         assertThat(result.getTossups().get(0).getOrder()).isZero();
+        assertThat(result.getTossups().get(0).getTossup().getSource()).isEqualTo(ContentSource.AI_GENERATED);
+        assertThat(result.getTossups().get(0).getTossup().getAiModel()).isEqualTo("test-model");
     }
 
     /* ------------------------------- Taxonomy ------------------------------ */
