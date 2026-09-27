@@ -6,8 +6,10 @@ import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,16 +34,22 @@ public class QbreaderController {
     /** Tossups/bonuses used when the request leaves a count unset (then clamped to the max). */
     static final int DEFAULT_COUNT = 20;
 
+    /** Callers with this authority get an owned DRAFT packet; everyone else an EPHEMERAL one (D15). */
+    static final String PACKET_CREATE = "packet:create";
+
     private final QbreaderImportService importService;
     private final int maxTossups;
     private final int maxBonuses;
+    private final boolean authEnabled;
 
     public QbreaderController(QbreaderImportService importService,
                               @Value("${sockbowl.import.max-tossups:30}") int maxTossups,
-                              @Value("${sockbowl.import.max-bonuses:30}") int maxBonuses) {
+                              @Value("${sockbowl.import.max-bonuses:30}") int maxBonuses,
+                              @Value("${sockbowl.auth.enabled:false}") boolean authEnabled) {
         this.importService = importService;
         this.maxTossups = maxTossups;
         this.maxBonuses = maxBonuses;
+        this.authEnabled = authEnabled;
     }
 
     /**
@@ -49,21 +57,33 @@ public class QbreaderController {
      * questions the caller has already seen (their qbreader ids). Returns the qbreader
      * ids actually used so the caller can record them per user.
      *
-     * <p>With auth enabled this requires {@code packet:create} (AUTH-07, D3) and the
-     * caller becomes the packet's owner. With auth disabled method security is off,
-     * so anyone may import and the packet is ownerless, as before. Either way the
-     * counts are bounded: {@code tossupCount} below 1 (or {@code bonusCount} below 0;
-     * a tossup-only packet is allowed, as the Generate UI offers) is a 400, an unset
-     * value defaults to {@value #DEFAULT_COUNT}, and anything above
-     * {@code sockbowl.import.max-tossups} / {@code max-bonuses} (default 30) is clamped
-     * down to it.
+     * <p>Who gets what (D3 as amended by D15), with auth enabled:
+     * <ul>
+     *   <li>a caller holding {@code packet:create} gets an owned
+     *       {@link PacketVisibility#DRAFT} packet, as before;</li>
+     *   <li>anyone else (anonymous guests, players, a token without
+     *       {@code packet:create}) gets an ownerless {@link PacketVisibility#EPHEMERAL}
+     *       packet: game-only, unlisted, not editable, and deleted after
+     *       {@code sockbowl.packet.ephemeral-ttl}. The game loads it with its service
+     *       token through {@code SetMatchPacket}.</li>
+     * </ul>
+     * With auth disabled nothing changes from before M2: an ownerless DRAFT packet that
+     * anyone may read. A bearer, when sent, is still validated (an invalid one is a 401).
+     *
+     * <p>Either way the counts are bounded: {@code tossupCount} below 1 (or
+     * {@code bonusCount} below 0; a tossup-only packet is allowed, as the Generate UI
+     * offers) is a 400, an unset value defaults to {@value #DEFAULT_COUNT}, and anything
+     * above {@code sockbowl.import.max-tossups} / {@code max-bonuses} (default 30) is
+     * clamped down to it. M4 adds a per-IP rate limit.
      */
     @PostMapping("/import-random")
-    @PreAuthorize("hasAuthority('packet:create')")
     public ImportResult importRandom(@RequestBody RandomRequest request, @AuthenticationPrincipal Jwt jwt) {
         int tossupCount = clampCount("tossupCount", request.tossupCount(), 1, maxTossups);
         int bonusCount = clampCount("bonusCount", request.bonusCount(), 0, maxBonuses);
-        AuthenticatedUser user = AuthenticatedUser.fromJwt(jwt); // guest() only when auth is disabled
+        boolean ephemeral = authEnabled && !hasAuthority(SecurityContextHolder.getContext().getAuthentication(),
+                PACKET_CREATE);
+        // guest() (no owner) when auth is disabled; an EPHEMERAL packet never has an owner.
+        AuthenticatedUser user = ephemeral ? AuthenticatedUser.guest() : AuthenticatedUser.fromJwt(jwt);
         QbRandomFilter filter = new QbRandomFilter(
                 request.categories(),
                 request.subcategories(),
@@ -80,8 +100,14 @@ public class QbreaderController {
                 request.excludeRemoteIds(),
                 Boolean.TRUE.equals(request.balanced()),
                 user.keycloakId(),
-                user.username());
+                user.username(),
+                ephemeral ? PacketVisibility.EPHEMERAL : PacketVisibility.defaultForNewPackets());
         return ImportResult.from(outcome);
+    }
+
+    private static boolean hasAuthority(Authentication auth, String authority) {
+        return auth != null && auth.isAuthenticated()
+                && auth.getAuthorities().stream().anyMatch(a -> authority.equals(a.getAuthority()));
     }
 
     /** Validates a requested count: null means the default, below {@code min} is rejected, above {@code max} is clamped. */

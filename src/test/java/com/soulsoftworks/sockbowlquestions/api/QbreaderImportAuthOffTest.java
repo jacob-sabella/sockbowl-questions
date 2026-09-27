@@ -2,6 +2,7 @@ package com.soulsoftworks.sockbowlquestions.api;
 
 import com.soulsoftworks.sockbowlquestions.config.NoSecurityConfig;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
 import org.junit.jupiter.api.Test;
@@ -44,14 +45,16 @@ class QbreaderImportAuthOffTest {
     void anonymous_import_is_allowed_and_ownerless_with_clamp() throws Exception {
         Packet p = new Packet();
         p.setId("p");
-        when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any()))
-                .thenReturn(new ImportOutcome(p, List.of()));
+        when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
+                any())).thenReturn(new ImportOutcome(p, List.of()));
 
         mvc.perform(post("/api/qbreader/import-random").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"tossupCount\":99,\"bonusCount\":3}"))
                 .andExpect(status().isOk());
 
-        verify(importService).importRandomPacket(any(), eq(30), eq(3), isNull(), isNull(), eq(false), isNull(), isNull());
+        // Auth off keeps the pre-M2 behavior: an ownerless DRAFT (readable by anyone), not EPHEMERAL.
+        verify(importService).importRandomPacket(any(), eq(30), eq(3), isNull(), isNull(), eq(false), isNull(), isNull(),
+                eq(PacketVisibility.DRAFT));
     }
 
     @Test

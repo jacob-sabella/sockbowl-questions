@@ -109,14 +109,20 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * @param tossups list of maps: question, answer, category, subcategory, order
      * @param bonuses list of maps: preamble, category, subcategory, order, parts
      *                (each part: question, answer, order)
-     * @param visibility name of the new packet's {@code PacketVisibility}
+     * @param visibility name of the new packet's {@code PacketVisibility}; an EPHEMERAL
+     *                   packet (D15) is also stamped with {@code ephemeralCreatedAt = datetime()}
+     *                   for the TTL cleanup ({@link #findExpiredEphemeralPacketIds})
+     * @param createdVia how the packet was made (e.g. {@code "import-random"}); stored as-is.
+     *                   Node-only provenance, not mapped on {@link Packet} (M4 owns the
+     *                   mapped provenance fields)
      * @return the new packet's id
      */
     @Query("""
             MERGE (d:Difficulty {name: $difficultyName})
               ON CREATE SET d.id = randomUUID()
             CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId, ownerDisplayName: $ownerDisplayName,
-                              visibility: $visibility})
+                              visibility: $visibility, createdVia: $createdVia,
+                              ephemeralCreatedAt: CASE WHEN $visibility = 'EPHEMERAL' THEN datetime() ELSE null END})
             CREATE (p)-[:DIFFICULTY_LEVEL]->(d)
             WITH p
             CALL (p) {
@@ -152,7 +158,24 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
                              @Param("bonuses") List<Map<String, Object>> bonuses,
                              @Param("ownerId") String ownerId,
                              @Param("ownerDisplayName") String ownerDisplayName,
-                             @Param("visibility") String visibility);
+                             @Param("visibility") String visibility,
+                             @Param("createdVia") String createdVia);
+
+    /**
+     * Ids of EPHEMERAL packets (D15) created before {@code cutoffEpochMillis}, oldest
+     * first, at most {@code limit}. An EPHEMERAL packet without a creation stamp counts
+     * as expired (only {@link #batchCreatePacket} creates them, and it always stamps).
+     */
+    @Query("""
+            MATCH (p:Packet {visibility: 'EPHEMERAL'})
+            WHERE p.ephemeralCreatedAt IS NULL
+               OR p.ephemeralCreatedAt < datetime({epochMillis: $cutoffEpochMillis})
+            RETURN p.id
+            ORDER BY p.ephemeralCreatedAt
+            LIMIT $limit
+            """)
+    List<String> findExpiredEphemeralPacketIds(@Param("cutoffEpochMillis") long cutoffEpochMillis,
+                                               @Param("limit") int limit);
 
     /**
      * Delete a packet and the question nodes it owns. Every packet's tossups/bonuses/
