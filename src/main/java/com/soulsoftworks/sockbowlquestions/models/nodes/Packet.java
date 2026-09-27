@@ -41,6 +41,14 @@ public class Packet {
     private PacketVisibility visibility;
 
     /**
+     * Optimistic-lock version (M3, PB-18). A plain property, not {@code @Version}: it is
+     * changed only by {@code PacketRepository.bumpVersion}, which every content mutation
+     * calls first. Null on nodes written before M3 and on packets created by bulk Cypher;
+     * null counts as 0 (the GraphQL field {@code Packet.version: Int!} reports 0).
+     */
+    private Long version;
+
+    /**
      * True on an answer-free projection served to a caller who may not read answers;
      * null (read as false) otherwise. Never persisted: it describes a response, not the
      * stored packet. A wrapper type on purpose, so JSON consumers that bind through the

@@ -173,6 +173,9 @@
         "$ref" : "#/$defs/ContainsTossup"
       }
     },
+    "version" : {
+      "type" : "integer"
+    },
     "visibility" : {
       "$ref" : "#/$defs/PacketVisibility"
     }

@@ -99,6 +99,46 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
     @Query("MATCH (p:Packet)-[:CONTAINS_BONUS]->(b:Bonus {id: $bonusId}) RETURN p LIMIT 1")
     Optional<Packet> findByBonusId(@Param("bonusId") String bonusId);
 
+    /* ---------------- Optimistic locking (M3 Q2, PB-18, plan 3.1.4) ---------------- */
+
+    /**
+     * Takes the packet's write lock, checks the version and bumps it, in one statement.
+     * Every content mutation in {@code PacketAuthoringService} calls this first, so
+     * concurrent mutations of one packet are serialized for the rest of the transaction.
+     *
+     * <p>The {@code SET p.versionLock ... REMOVE} pair exists only to acquire the node's
+     * exclusive lock <em>before</em> {@code p.version} is read. Neo4j reads are
+     * read-committed without locks, so reading the version before locking would let two
+     * transactions both see version N and both write N+1 (a lost update). Once the lock is
+     * held, the read sees the latest committed version.
+     *
+     * @param expected the version the caller last saw, or null to skip the check
+     * @return the new version, or null when the packet doesn't exist or {@code expected}
+     *         doesn't match (tell the two apart with {@link #currentVersion})
+     */
+    @Query("""
+            MATCH (p:Packet {id: $id})
+            SET p.versionLock = true
+            REMOVE p.versionLock
+            WITH p
+            WHERE $expected IS NULL OR coalesce(p.version, 0) = $expected
+            SET p.version = coalesce(p.version, 0) + 1
+            RETURN p.version
+            """)
+    Long bumpVersion(@Param("id") String id, @Param("expected") Long expected);
+
+    /** The packet's stored version (null reads as 0); empty when the packet doesn't exist. */
+    @Query("MATCH (p:Packet {id: $id}) RETURN coalesce(p.version, 0)")
+    Optional<Long> currentVersion(@Param("id") String id);
+
+    /** Id of the packet containing the tossup, for the version bump of node-level mutations. */
+    @Query("MATCH (p:Packet)-[:CONTAINS_TOSSUP]->(:Tossup {id: $tossupId}) RETURN p.id LIMIT 1")
+    Optional<String> findPacketIdByTossupId(@Param("tossupId") String tossupId);
+
+    /** Id of the packet containing the bonus, for the version bump of node-level mutations. */
+    @Query("MATCH (p:Packet)-[:CONTAINS_BONUS]->(:Bonus {id: $bonusId}) RETURN p.id LIMIT 1")
+    Optional<String> findPacketIdByBonusId(@Param("bonusId") String bonusId);
+
     /**
      * Creates a whole packet — difficulty, tossups, bonuses, bonus parts, and
      * the taxonomy each references — in a single write, instead of ~40
