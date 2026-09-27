@@ -42,35 +42,66 @@ import java.util.Map;
  *       and generation degrades gracefully at request time (see {@link AiConfig} and
  *       {@code ChatClientFactory}) instead of the app failing to start.</li>
  * </ul>
+ *
+ * <p>The same {@code matchIfMissing = true} behavior applies to Spring AI 2.0's
+ * embedding autoconfigurations, gated by {@code spring.ai.model.embedding}
+ * (analogous to {@code spring.ai.model.chat} above). {@code application.yml}
+ * sets the legacy {@code spring.ai.openai.embedding.enabled} /
+ * {@code spring.ai.ollama.embedding.enabled} flags (openai=false, ollama=true)
+ * expecting those to gate embedding autoconfiguration the old way, but since
+ * neither sets the new selector property, both {@code OpenAiEmbeddingAutoConfiguration}
+ * and {@code OllamaEmbeddingAutoConfiguration} ran regardless, registering two
+ * {@code EmbeddingModel} beans and failing
+ * {@code Neo4jVectorStoreAutoConfiguration}'s single-{@code EmbeddingModel}
+ * dependency with a compose crash-loop identical in shape to the chat one.
+ * This class derives {@code spring.ai.model.embedding} from the embedding
+ * flags the same way it derives {@code spring.ai.model.chat} from the chat
+ * flags.
  */
 public class AiChatModelSelectorEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
 
     static final String SELECTOR_PROPERTY = "spring.ai.model.chat";
+    static final String EMBEDDING_SELECTOR_PROPERTY = "spring.ai.model.embedding";
     private static final String PROPERTY_SOURCE_NAME = "sockbowlAiChatModelSelector";
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        if (environment.containsProperty(SELECTOR_PROPERTY)) {
-            return; // explicit operator override wins
+        Map<String, Object> derived = new java.util.HashMap<>();
+
+        if (!environment.containsProperty(SELECTOR_PROPERTY)) {
+            derived.put(SELECTOR_PROPERTY, derive(environment,
+                    "spring.ai.openai.chat.enabled", true,
+                    "spring.ai.ollama.chat.enabled", false));
         }
 
-        boolean openaiEnabled = environment.getProperty("spring.ai.openai.chat.enabled", Boolean.class, true);
-        boolean ollamaEnabled = environment.getProperty("spring.ai.ollama.chat.enabled", Boolean.class, false);
+        if (!environment.containsProperty(EMBEDDING_SELECTOR_PROPERTY)) {
+            derived.put(EMBEDDING_SELECTOR_PROPERTY, derive(environment,
+                    "spring.ai.openai.embedding.enabled", false,
+                    "spring.ai.ollama.embedding.enabled", true));
+        }
 
-        String selected;
+        if (!derived.isEmpty()) {
+            environment.getPropertySources()
+                    .addFirst(new MapPropertySource(PROPERTY_SOURCE_NAME, derived));
+        }
+    }
+
+    private String derive(ConfigurableEnvironment environment,
+            String openaiFlag, boolean openaiDefault,
+            String ollamaFlag, boolean ollamaDefault) {
+        boolean openaiEnabled = environment.getProperty(openaiFlag, Boolean.class, openaiDefault);
+        boolean ollamaEnabled = environment.getProperty(ollamaFlag, Boolean.class, ollamaDefault);
+
         if (openaiEnabled && ollamaEnabled) {
             String preferred = environment.getProperty("sockbowl.ai.provider", "openai");
-            selected = "ollama".equalsIgnoreCase(preferred) ? "ollama" : "openai";
+            return "ollama".equalsIgnoreCase(preferred) ? "ollama" : "openai";
         } else if (openaiEnabled) {
-            selected = "openai";
+            return "openai";
         } else if (ollamaEnabled) {
-            selected = "ollama";
+            return "ollama";
         } else {
-            selected = "none";
+            return "none";
         }
-
-        environment.getPropertySources()
-                .addFirst(new MapPropertySource(PROPERTY_SOURCE_NAME, Map.of(SELECTOR_PROPERTY, selected)));
     }
 
     @Override
