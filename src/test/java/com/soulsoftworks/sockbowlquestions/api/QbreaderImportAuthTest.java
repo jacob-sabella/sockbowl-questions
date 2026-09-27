@@ -3,6 +3,7 @@ package com.soulsoftworks.sockbowlquestions.api;
 import com.soulsoftworks.sockbowlquestions.config.JwtDecoderConfig;
 import com.soulsoftworks.sockbowlquestions.config.SecurityConfig;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,9 +35,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * AUTH-07 / D3: {@code POST /api/qbreader/import-random} with auth on. It needs a
- * bearer (URL rule) and {@code packet:create} ({@code @PreAuthorize}), records the
- * caller as owner, and clamps the requested counts to {@code sockbowl.import.*}.
+ * AUTH-07 / D3 as amended by D15: {@code POST /api/qbreader/import-random} with auth
+ * on. A caller with {@code packet:create} gets an owned DRAFT packet; anyone else
+ * (anonymous guest, player) gets an ownerless EPHEMERAL one. The requested counts are
+ * clamped to {@code sockbowl.import.*} either way, and an invalid bearer is a 401.
  */
 @WebMvcTest(controllers = QbreaderController.class, properties = "sockbowl.auth.enabled=true")
 @Import({SecurityConfig.class, JwtDecoderConfig.class})
@@ -55,8 +57,8 @@ class QbreaderImportAuthTest {
         Packet p = new Packet();
         p.setId("new-packet");
         p.setName("Random packet");
-        when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any()))
-                .thenReturn(new ImportOutcome(p, List.of("r1", "r2")));
+        when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
+                any())).thenReturn(new ImportOutcome(p, List.of("r1", "r2")));
     }
 
     private static MockHttpServletRequestBuilder importRequest(String body) {
@@ -70,23 +72,43 @@ class QbreaderImportAuthTest {
 
     private void verifyNoImport() {
         verify(importService, never())
-                .importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any());
+                .importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
-    void anonymous_is_401() throws Exception {
-        mvc.perform(importRequest("{\"tossupCount\":5,\"bonusCount\":5}"))
+    void anonymous_guest_gets_an_ownerless_ephemeral_packet_with_clamp() throws Exception {
+        mvc.perform(importRequest("{\"tossupCount\":500,\"bonusCount\":5}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("new-packet"));
+
+        verify(importService).importRandomPacket(any(), eq(30), eq(5), isNull(), isNull(), eq(false),
+                isNull(), isNull(), eq(PacketVisibility.EPHEMERAL));
+    }
+
+    @Test
+    void player_without_packet_create_gets_an_ownerless_ephemeral_packet() throws Exception {
+        mvc.perform(importRequest("{\"tossupCount\":5,\"bonusCount\":5}")
+                        .with(jwt().jwt(j -> j.subject("player-sub").claim("preferred_username", "pat"))
+                                .authorities(new SimpleGrantedAuthority("packet:read"),
+                                        new SimpleGrantedAuthority("game:host"))))
+                .andExpect(status().isOk());
+
+        // No owner is recorded, even though the caller is known: nobody may manage it.
+        verify(importService).importRandomPacket(any(), eq(5), eq(5), isNull(), isNull(), eq(false),
+                isNull(), isNull(), eq(PacketVisibility.EPHEMERAL));
+    }
+
+    @Test
+    void invalid_bearer_is_401() throws Exception {
+        mvc.perform(importRequest("{\"tossupCount\":5}").header("Authorization", "Bearer not-a-jwt"))
                 .andExpect(status().isUnauthorized());
         verifyNoImport();
     }
 
     @Test
-    void player_without_packet_create_is_403() throws Exception {
-        mvc.perform(importRequest("{\"tossupCount\":5,\"bonusCount\":5}")
-                        .with(jwt().jwt(j -> j.subject("player-sub"))
-                                .authorities(new SimpleGrantedAuthority("packet:read"),
-                                        new SimpleGrantedAuthority("game:host"))))
-                .andExpect(status().isForbidden());
+    void guest_tossup_count_zero_is_400() throws Exception {
+        mvc.perform(importRequest("{\"tossupCount\":0,\"bonusCount\":5}"))
+                .andExpect(status().isBadRequest());
         verifyNoImport();
     }
 
@@ -98,7 +120,7 @@ class QbreaderImportAuthTest {
                 .andExpect(jsonPath("$.usedRemoteIds.length()").value(2));
 
         verify(importService).importRandomPacket(any(), eq(30), eq(30), eq("Mine"), isNull(), eq(false),
-                eq("author-sub"), eq("alice"));
+                eq("author-sub"), eq("alice"), eq(PacketVisibility.DRAFT));
     }
 
     @Test
@@ -108,7 +130,7 @@ class QbreaderImportAuthTest {
 
         // bonusCount=0 is a tossup-only packet, which the Generate UI allows.
         verify(importService).importRandomPacket(any(), eq(12), eq(0), isNull(), isNull(), eq(false),
-                eq("author-sub"), anyString());
+                eq("author-sub"), anyString(), eq(PacketVisibility.DRAFT));
     }
 
     @Test
@@ -116,7 +138,7 @@ class QbreaderImportAuthTest {
         mvc.perform(importRequest("{}").with(author())).andExpect(status().isOk());
 
         verify(importService).importRandomPacket(any(), eq(20), eq(20), isNull(), isNull(), eq(false),
-                eq("author-sub"), anyString());
+                eq("author-sub"), anyString(), eq(PacketVisibility.DRAFT));
     }
 
     @Test

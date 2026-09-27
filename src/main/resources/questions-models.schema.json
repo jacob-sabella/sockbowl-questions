@@ -104,7 +104,7 @@
     },
     "PacketVisibility" : {
       "type" : "string",
-      "enum" : [ "DRAFT", "PUBLISHED" ]
+      "enum" : [ "DRAFT", "PUBLISHED", "EPHEMERAL" ]
     },
     "Subcategory" : {
       "type" : "object",

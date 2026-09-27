@@ -41,6 +41,7 @@ class PacketRepositoryVisibilityIT extends Neo4jContainerTestBase {
                 CREATE (:Packet {id: 'repo-vis-draft-other', name: 'repo-vis Beta', visibility: 'DRAFT', ownerId: 'someone-else'})
                 CREATE (:Packet {id: 'repo-vis-draft-ownerless', name: 'repo-vis Gamma', visibility: 'DRAFT'})
                 CREATE (:Packet {id: 'repo-vis-pub', name: 'repo-vis Delta', visibility: 'PUBLISHED', ownerId: 'someone-else'})
+                CREATE (:Packet {id: 'repo-vis-eph', name: 'repo-vis Zeta', visibility: 'EPHEMERAL'})
                 """).bind(OWNER).to("owner").run();
         // A legacy node with no visibility (created after the startup migration ran).
         neo4j.query("CREATE (:Packet {id: 'repo-vis-legacy', name: 'repo-vis Epsilon'})").run();
@@ -80,9 +81,62 @@ class PacketRepositoryVisibilityIT extends Neo4jContainerTestBase {
     }
 
     @Test
+    void listedQueriesLeaveOutOnlyEphemeral() {
+        List<String> listed = ours(repository.findListedPacketIds(policy.unlistedVisibilities(),
+                policy.legacyVisibility()));
+        List<String> searched = repository.searchListedByName("repo-vis", policy.unlistedVisibilities(),
+                policy.legacyVisibility()).stream().map(Packet::getId).toList();
+
+        List<String> expected = List.of("repo-vis-draft-mine", "repo-vis-draft-other", "repo-vis-draft-ownerless",
+                "repo-vis-pub", "repo-vis-legacy");
+        assertThat(listed).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(searched).containsExactlyInAnyOrderElementsOf(expected);
+    }
+
+    @Test
+    void batchCreateStampsEphemeralPacketsForTheTtlCleanup() {
+        String eph = repository.batchCreatePacket("repo-vis Eph", "Easy", List.of(), List.of(), null, null,
+                PacketVisibility.EPHEMERAL.name(), "import-random");
+        String draft = repository.batchCreatePacket("repo-vis Draft", "Easy", List.of(), List.of(), OWNER, "owner",
+                PacketVisibility.DRAFT.name(), "import-random");
+
+        Map<String, Object> ephProps = storedProps(eph);
+        assertThat(ephProps).containsEntry("visibility", "EPHEMERAL").containsEntry("createdVia", "import-random")
+                .containsKey("ephemeralCreatedAt").doesNotContainKey("ownerId");
+        assertThat(storedProps(draft)).containsEntry("createdVia", "import-random")
+                .doesNotContainKey("ephemeralCreatedAt");
+        assertThat(repository.findById(eph).orElseThrow().getVisibility()).isEqualTo(PacketVisibility.EPHEMERAL);
+    }
+
+    @Test
+    void expiredEphemeralQueryHonorsTheCutoffAndIgnoresOtherVisibilities() {
+        neo4j.query("""
+                CREATE (:Packet {id: 'repo-vis-eph-old', name: 'repo-vis Old', visibility: 'EPHEMERAL',
+                                 ephemeralCreatedAt: datetime('2026-01-01T00:00:00Z')})
+                CREATE (:Packet {id: 'repo-vis-eph-new', name: 'repo-vis New', visibility: 'EPHEMERAL',
+                                 ephemeralCreatedAt: datetime('2026-01-03T00:00:00Z')})
+                CREATE (:Packet {id: 'repo-vis-draft-old', name: 'repo-vis Old draft', visibility: 'DRAFT',
+                                 ephemeralCreatedAt: datetime('2026-01-01T00:00:00Z')})
+                """).run();
+        long cutoff = java.time.Instant.parse("2026-01-02T00:00:00Z").toEpochMilli();
+
+        // repo-vis-eph (seeded without a stamp) counts as expired too.
+        assertThat(ours(repository.findExpiredEphemeralPacketIds(cutoff, 100)))
+                .containsExactlyInAnyOrder("repo-vis-eph-old", "repo-vis-eph");
+        assertThat(ours(repository.findExpiredEphemeralPacketIds(
+                java.time.Instant.parse("2026-01-04T00:00:00Z").toEpochMilli(), 100)))
+                .containsExactlyInAnyOrder("repo-vis-eph-old", "repo-vis-eph-new", "repo-vis-eph");
+    }
+
+    private Map<String, Object> storedProps(String id) {
+        return neo4j.query("MATCH (p:Packet {id: $id}) RETURN properties(p) AS props")
+                .bind(id).to("id").fetch().one().map(PacketRepositoryVisibilityIT::props).orElseThrow();
+    }
+
+    @Test
     void batchCreateStoresTheGivenVisibility() {
         String id = repository.batchCreatePacket("repo-vis Batch", "Easy", List.of(), List.of(), OWNER, "owner",
-                PacketVisibility.DRAFT.name());
+                PacketVisibility.DRAFT.name(), "import-random");
 
         Packet stored = repository.findById(id).orElseThrow();
         assertThat(stored.getVisibility()).isEqualTo(PacketVisibility.DRAFT);

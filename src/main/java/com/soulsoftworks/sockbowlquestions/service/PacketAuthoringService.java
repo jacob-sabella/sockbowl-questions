@@ -112,6 +112,10 @@ public class PacketAuthoringService {
         if (visibility == null) {
             throw new InvalidApiRequestException("Packet visibility is required");
         }
+        if (visibility.isGameOnly()) {
+            // D15: EPHEMERAL packets only come from import-random for guests and players.
+            throw new InvalidApiRequestException("Packet visibility " + visibility + " can't be set directly");
+        }
         Packet packet = requirePacket(id);
         packet.setVisibility(visibility);
         return packetRepository.save(packet);

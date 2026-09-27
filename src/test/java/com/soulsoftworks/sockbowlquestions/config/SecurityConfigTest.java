@@ -6,7 +6,9 @@ import com.soulsoftworks.sockbowlquestions.api.PacketGenerationController;
 import com.soulsoftworks.sockbowlquestions.api.QbreaderController;
 import com.soulsoftworks.sockbowlquestions.repository.BankDimensionsRepository;
 import com.soulsoftworks.sockbowlquestions.repository.BankStatsRepository;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService;
+import com.soulsoftworks.sockbowlquestions.service.QbreaderImportService.ImportOutcome;
 import com.soulsoftworks.sockbowlquestions.service.QuestionGenerationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,6 +28,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -43,8 +49,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li><strong>The HTTP perimeter</strong> (AUTH-08): deny-by-default URL rules,
  *       exercised against the real bank and import controllers with mocked
  *       services. Unlisted paths are 401 anonymous and 403 authenticated, the
- *       aggregate bank endpoints are open, and {@code import-random} and
- *       {@code generate} need a bearer.</li>
+ *       aggregate bank endpoints and {@code import-random} (D15) are open, and
+ *       {@code generate} needs a bearer.</li>
  *   <li><strong>Method security and authority mapping</strong>
  *       (401 unauthenticated / 403 wrong authority / 200 correct authority) via
  *       {@link SecurityProbeController}. The probe path isn't in the deny-by-default
@@ -141,8 +147,21 @@ class SecurityConfigTest {
     }
 
     @Test
-    void import_random_is_401_anonymous() throws Exception {
+    void import_random_is_open_anonymous_for_ephemeral_packets() throws Exception {
+        // D15 amends D3: guests may generate a (game-only, EPHEMERAL) bank packet.
+        Packet p = new Packet();
+        p.setId("eph");
+        when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
+                any())).thenReturn(new ImportOutcome(p, List.of()));
+
         mvc.perform(post("/api/qbreader/import-random").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void import_random_with_invalid_bearer_is_401() throws Exception {
+        mvc.perform(post("/api/qbreader/import-random").contentType(MediaType.APPLICATION_JSON).content("{}")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt"))
                 .andExpect(status().isUnauthorized());
     }
 

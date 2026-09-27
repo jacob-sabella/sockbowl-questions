@@ -39,8 +39,9 @@ import java.util.Map;
  *       queries.</li>
  *   <li>Bank aggregates ({@code GET /api/qbreader/{stats,dimensions,category-counts,taxonomy-counts}},
  *       {@code POST /api/qbreader/count}): open. They return counts only.</li>
- *   <li>{@code POST /api/qbreader/import-random}: authenticated, plus
- *       {@code packet:create} on the method (AUTH-07, D3).</li>
+ *   <li>{@code POST /api/qbreader/import-random}: open (D15 amends D3). Callers with
+ *       {@code packet:create} get an owned DRAFT packet; everyone else gets an
+ *       ownerless, game-only EPHEMERAL one. Counts are clamped; M4 rate-limits it.</li>
  *   <li>{@code /api/packets/generate}: authenticated, plus {@code question:generate}
  *       on the method.</li>
  *   <li>{@code /actuator/health/**}: open, for the compose healthcheck.</li>
@@ -79,7 +80,8 @@ public class SecurityConfig {
                     a.requestMatchers(HttpMethod.POST, "/graphql").permitAll();
                     a.requestMatchers(HttpMethod.GET, PUBLIC_BANK_GETS).permitAll();
                     a.requestMatchers(HttpMethod.POST, "/api/qbreader/count").permitAll();
-                    a.requestMatchers(HttpMethod.POST, "/api/qbreader/import-random").authenticated();
+                    // D15: guests and players get an EPHEMERAL packet, packet:create an owned DRAFT.
+                    a.requestMatchers(HttpMethod.POST, "/api/qbreader/import-random").permitAll();
                     a.requestMatchers("/api/packets/generate").authenticated();
                     a.requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll();
                     if (graphiqlEnabled) {

@@ -25,6 +25,14 @@ sockbowl:
     # clamped down to these (AUTH-07).
     max-tossups: 30
     max-bonuses: 30
+  packet:
+    # Game-only EPHEMERAL packets (guest/player import-random, D15) are deleted
+    # once older than this.
+    ephemeral-ttl: "${SOCKBOWL_PACKET_EPHEMERAL_TTL:24h}"
+    ephemeral-cleanup:
+      enabled: true
+      interval: PT1H
+      initial-delay: PT5M
   cors:
     # Comma-separated allowlist; wired to SOCKBOWL_ALLOWED_ORIGINS in compose.
     allowed-origins: "${SOCKBOWL_ALLOWED_ORIGINS:http://localhost,http://localhost:80}"

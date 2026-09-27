@@ -33,6 +33,12 @@ public class QbreaderImportService {
 
     private static final Logger log = LoggerFactory.getLogger(QbreaderImportService.class);
 
+    /** Recorded as {@code createdVia} on every packet this service creates (D15). */
+    public static final String CREATED_VIA = "import-random";
+
+    private static final List<String> UNLISTED_VISIBILITIES = java.util.Arrays.stream(PacketVisibility.values())
+            .filter(v -> !v.isListed()).map(Enum::name).toList();
+
     private final BankRepository bankRepository;
     private final PacketRepository packetRepository;
 
@@ -62,7 +68,9 @@ public class QbreaderImportService {
 
     /**
      * As above, persisting the packet with an explicit visibility. The short form
-     * uses the D2 default ({@link PacketVisibility#DRAFT}).
+     * uses the D2 default ({@link PacketVisibility#DRAFT}). A game-only visibility
+     * (EPHEMERAL, D15) also stamps {@code ephemeralCreatedAt}, which the TTL cleanup
+     * job ({@code EphemeralPacketCleanupJob}) reads; callers pass no owner for it.
      */
     public ImportOutcome importRandomPacket(QbRandomFilter filter, int tossupCount, int bonusCount,
                                             String name, Collection<String> excludeRemoteIds, boolean balanced,
@@ -125,13 +133,16 @@ public class QbreaderImportService {
 
         Integer diff = (filter == null || filter.difficulties() == null || filter.difficulties().isEmpty())
                 ? null : filter.difficulties().get(0);
-        String packetName = uniqueName((name == null || name.isBlank()) ? "Custom packet" : name.trim());
+        String baseName = (name == null || name.isBlank()) ? "Custom packet" : name.trim();
+        // A game-only packet is never listed, so its name needn't be unique (and guest
+        // imports must not push listed packets' names to "(2)", "(3)", ...).
+        String packetName = effectiveVisibility.isGameOnly() ? baseName : uniqueName(baseName);
 
         String id = packetRepository.batchCreatePacket(
                 packetName, difficultyLabel(diff), tossupRows, bonusRows, ownerId, ownerDisplayName,
-                effectiveVisibility.name());
-        log.info("Generated local packet '{}' (id={}, {} tossups, {} bonuses)",
-                packetName, id, tossupRows.size(), bonusRows.size());
+                effectiveVisibility.name(), CREATED_VIA);
+        log.info("Generated local packet '{}' (id={}, visibility={}, {} tossups, {} bonuses)",
+                packetName, id, effectiveVisibility, tossupRows.size(), bonusRows.size());
         return new ImportOutcome(
                 Packet.builder().id(id).name(packetName).ownerId(ownerId).ownerDisplayName(ownerDisplayName)
                         .visibility(effectiveVisibility).build(),
@@ -231,8 +242,10 @@ public class QbreaderImportService {
 
     /* -------------------------------------------------------------------- */
 
+    /** Listed packets only: game-only (EPHEMERAL) packets don't reserve names. */
     private Packet findByExactName(String name) {
-        return packetRepository.searchByName(name).stream()
+        return packetRepository.searchListedByName(name, UNLISTED_VISIBILITIES,
+                        PacketVisibility.effective(null).name()).stream()
                 .filter(p -> name.equalsIgnoreCase(p.getName()))
                 .findFirst().orElse(null);
     }

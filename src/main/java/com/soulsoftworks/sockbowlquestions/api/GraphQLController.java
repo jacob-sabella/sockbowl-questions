@@ -46,14 +46,16 @@ public class GraphQLController {
      *
      * <p>No {@code @PreAuthorize}: guests and anonymous callers (including anonymous
      * game hosting) can still read packets, but only through {@link PacketReadPolicy}:
-     * drafts are left out unless the caller owns them or may read every packet, and
-     * callers without full-read rights get the answer-free projection.
+     * drafts are left out unless the caller owns them or may read every packet, game-only
+     * (EPHEMERAL) packets are always left out, and callers without full-read rights get
+     * the answer-free projection.
      */
     @QueryMapping
     public List<Packet> getAllPackets() {
         Authentication auth = PacketReadPolicy.currentAuthentication();
         Iterable<Packet> candidates = readPolicy.canReadEveryPacket(auth)
-                ? packetRepository.findAll()
+                ? packetRepository.findAllById(packetRepository.findListedPacketIds(
+                        readPolicy.unlistedVisibilities(), readPolicy.legacyVisibility()))
                 : packetRepository.findAllById(packetRepository.findVisiblePacketIds(
                         readPolicy.publiclyReadableVisibilities(), readPolicy.legacyVisibility(),
                         readPolicy.callerId(auth)));
@@ -79,17 +81,21 @@ public class GraphQLController {
     public List<Packet> searchPacketsByName(@Argument String name) {
         Authentication auth = PacketReadPolicy.currentAuthentication();
         List<Packet> candidates = readPolicy.canReadEveryPacket(auth)
-                ? packetRepository.searchByName(name)
+                ? packetRepository.searchListedByName(name, readPolicy.unlistedVisibilities(),
+                        readPolicy.legacyVisibility())
                 : packetRepository.searchVisibleByName(name, readPolicy.publiclyReadableVisibilities(),
                         readPolicy.legacyVisibility(), readPolicy.callerId(auth));
         return project(auth, candidates);
     }
 
-    /** Re-checks {@code canSee} in Java (the query filter is an optimization) and projects. */
+    /**
+     * Re-checks {@code isListed} and {@code canSee} in Java (the query filter is an
+     * optimization) and projects. Game-only (EPHEMERAL, D15) packets are never listed.
+     */
     private List<Packet> project(Authentication auth, Iterable<Packet> packets) {
         List<Packet> out = new ArrayList<>();
         for (Packet packet : packets) {
-            if (readPolicy.canSee(auth, packet)) {
+            if (readPolicy.isListed(packet) && readPolicy.canSee(auth, packet)) {
                 out.add(PacketProjection.forCaller(readPolicy, auth, packet));
             }
         }

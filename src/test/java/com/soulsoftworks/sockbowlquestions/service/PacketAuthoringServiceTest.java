@@ -154,6 +154,14 @@ class PacketAuthoringServiceTest {
     }
 
     @Test
+    void setPacketVisibility_ephemeral_isRejected() {
+        // D15: EPHEMERAL only comes from import-random for callers without packet:create.
+        assertThatThrownBy(() -> service.setPacketVisibility("p1", PacketVisibility.EPHEMERAL))
+                .isInstanceOf(InvalidApiRequestException.class);
+        verify(packetRepository, never()).save(any(Packet.class));
+    }
+
+    @Test
     void createPacket_blankName_throws() {
         assertThatThrownBy(() -> service.createPacket(new CreatePacketInput("  ", null), "sub-1", "author1"))
                 .isInstanceOf(InvalidApiRequestException.class);

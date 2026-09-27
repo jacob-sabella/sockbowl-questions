@@ -56,15 +56,20 @@ public class PacketAuthoringController {
         return authoringService.setPacketDifficulty(id, difficultyId);
     }
 
-    /** Publish or unpublish a packet (D2). M3 adds the UI toggle; M2 ships the API. */
+    /**
+     * Publish or unpublish a packet (D2). M3 adds the UI toggle; M2 ships the API.
+     * EPHEMERAL can't be set here (it's only created by import-random, D15), and an
+     * EPHEMERAL packet can't be changed (canManage is false for it).
+     */
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#id)")
     public Packet setPacketVisibility(@Argument String id, @Argument PacketVisibility visibility) {
         return authoringService.setPacketVisibility(id, visibility);
     }
 
+    /** manage-any may also delete a game-only (EPHEMERAL) packet, which nobody may edit (D15). */
     @MutationMapping
-    @PreAuthorize("hasAuthority('packet:delete') and @packetAuthorizationService.canManage(#id)")
+    @PreAuthorize("hasAuthority('packet:delete') and @packetAuthorizationService.canDelete(#id)")
     public boolean deletePacket(@Argument String id) {
         return authoringService.deletePacket(id);
     }
