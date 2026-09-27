@@ -239,3 +239,70 @@ type BonusPart {
   question: String
   answer: String
 }
+
+# --- M4 ---
+# Provenance and auditing (D13, M4-PV-01). Append-only block: new milestones add their
+# own "# --- Mn ---" block below rather than editing the types above, so merges don't
+# conflict.
+
+"""
+How a piece of content came to exist (D13). AUTHORED: written or last edited by hand.
+QBREADER_IMPORT: copied from the local question bank via import-random. AI_GENERATED:
+written by an LLM (aiModel records which one). TEXT_IMPORT and CLONED are reserved for
+M3 (plaintext packet import, clonePacket) and are not produced by any M4 path.
+"""
+enum ContentSource {
+  AUTHORED
+  QBREADER_IMPORT
+  AI_GENERATED
+  TEXT_IMPORT
+  CLONED
+}
+
+extend type Packet {
+  """When this packet was first saved. Null on nodes saved before M4."""
+  createdAt: String
+  """When this packet was last saved (including its first save)."""
+  lastModifiedAt: String
+  """How this packet was made."""
+  source: ContentSource
+  """The model that generated this packet, when source is AI_GENERATED; null otherwise."""
+  aiModel: String
+  """Who created this packet. Visible only to its owner, packet:manage-any, or the game service; null otherwise (including for anonymous callers)."""
+  createdById: String
+  """Who last modified this packet. Same visibility rule as createdById."""
+  lastModifiedById: String
+}
+
+extend type Tossup {
+  createdAt: String
+  lastModifiedAt: String
+  source: ContentSource
+  aiModel: String
+  """Same visibility rule as Packet.createdById, applied to the containing packet."""
+  createdById: String
+  """Same visibility rule as Packet.createdById, applied to the containing packet."""
+  lastModifiedById: String
+}
+
+extend type Bonus {
+  createdAt: String
+  lastModifiedAt: String
+  source: ContentSource
+  aiModel: String
+  """Same visibility rule as Packet.createdById, applied to the containing packet."""
+  createdById: String
+  """Same visibility rule as Packet.createdById, applied to the containing packet."""
+  lastModifiedById: String
+}
+
+extend type BonusPart {
+  createdAt: String
+  lastModifiedAt: String
+  source: ContentSource
+  aiModel: String
+  """Same visibility rule as Packet.createdById, applied to the containing packet."""
+  createdById: String
+  """Same visibility rule as Packet.createdById, applied to the containing packet."""
+  lastModifiedById: String
+}
