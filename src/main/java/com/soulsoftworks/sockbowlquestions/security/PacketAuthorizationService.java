@@ -2,6 +2,8 @@ package com.soulsoftworks.sockbowlquestions.security;
 
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -17,9 +19,16 @@ import org.springframework.stereotype.Service;
  * active, i.e. only under {@link com.soulsoftworks.sockbowlquestions.config.SecurityConfig}.
  * Under {@code NoSecurityConfig} (auth disabled) method security isn't engaged
  * at all, so ownership is never checked and behavior is unchanged.
+ *
+ * <p><strong>Ownerless packets</strong> (D3, closes PB-17): a packet with no
+ * {@code ownerId} (legacy data, or one imported while auth was off) can only be
+ * managed through the {@code packet:manage-any} short-circuit. There is no
+ * grandfather rule letting any author edit or delete them.
  */
 @Service("packetAuthorizationService")
 public class PacketAuthorizationService {
+
+    private static final AuthenticationTrustResolver TRUST_RESOLVER = new AuthenticationTrustResolverImpl();
 
     private final PacketRepository packetRepository;
 
@@ -66,21 +75,30 @@ public class PacketAuthorizationService {
         return canManage(auth, packet);
     }
 
-    private boolean canManage(Authentication auth, Packet packet) {
-        if (packet == null) {
-            // Let the mutation's own not-found path handle a missing packet/node.
+    /**
+     * Ownership decision for an already-loaded packet: {@code packet:manage-any}, or the
+     * caller is the recorded owner. A missing packet, an ownerless packet (D3) and an
+     * anonymous caller all give {@code false}.
+     */
+    public boolean canManage(Authentication auth, Packet packet) {
+        if (!isRealUser(auth) || packet == null) {
+            // A missing packet/node: the mutation is denied rather than leaking existence.
             return false;
         }
-        if (packet.getOwnerId() == null) {
-            // Grandfather rule: any authenticated author-tier user may manage legacy packets.
+        if (hasAuthority(auth, "packet:manage-any")) {
             return true;
         }
-        return packet.getOwnerId().equals(auth.getName());
+        // D3: ownerless packets are manageable only via packet:manage-any (handled above).
+        return packet.getOwnerId() != null && packet.getOwnerId().equals(auth.getName());
     }
 
     private Authentication currentAuth() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return (auth != null && auth.isAuthenticated()) ? auth : null;
+        return isRealUser(auth) ? auth : null;
+    }
+
+    private static boolean isRealUser(Authentication auth) {
+        return auth != null && auth.isAuthenticated() && !TRUST_RESOLVER.isAnonymous(auth);
     }
 
     private boolean hasAuthority(Authentication auth, String authority) {
