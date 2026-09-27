@@ -1,6 +1,19 @@
 server:
   port: "${SOCKBOWL_PORT:7009}"
 
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only health, for the compose healthcheck. Everything else
+        # (env, beans, etc.) stays off even though NoSecurityConfig /
+        # SecurityConfig both permitAll — that topology enforces
+        # authorization at @PreAuthorize, which doesn't cover actuator.
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
 sockbowl:
   auth:
     enabled: "${SOCKBOWL_AUTH_ENABLED:false}"
