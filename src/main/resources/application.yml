@@ -20,6 +20,11 @@ sockbowl:
     # Required "aud" entry on every bearer token (AUTH-09). Keycloak adds it
     # through the sockbowl-api-audience mapper on the Sockbowl clients.
     audience: "${SOCKBOWL_AUTH_AUDIENCE:sockbowl-api}"
+  import:
+    # Upper bounds for POST /api/qbreader/import-random; larger requests are
+    # clamped down to these (AUTH-07).
+    max-tossups: 30
+    max-bonuses: 30
   cors:
     # Comma-separated allowlist; wired to SOCKBOWL_ALLOWED_ORIGINS in compose.
     allowed-origins: "${SOCKBOWL_ALLOWED_ORIGINS:http://localhost,http://localhost:80}"
