@@ -1,5 +1,13 @@
 server:
   port: "${SOCKBOWL_PORT:7009}"
+  # M4: client IP for rate limits is request.getRemoteAddr() only. Forwarded
+  # headers are trusted only with strategy=native AND an explicit trusted-proxy
+  # regex; an EMPTY internal-proxies trusts everyone, so LimitsStartupValidator
+  # refuses to start with native + blank regex (plan m4-limits section 2.1).
+  forward-headers-strategy: "${SOCKBOWL_FORWARD_HEADERS_STRATEGY:none}"
+  tomcat:
+    remoteip:
+      internal-proxies: "${SOCKBOWL_TRUSTED_PROXIES_REGEX:}"
 
 management:
   endpoints:
@@ -41,8 +49,179 @@ sockbowl:
     require-user-api-key: "${SOCKBOWL_REQUIRE_USER_API_KEY:true}" # When true, users must provide their own API key via X-API-Key header
     packetgen:
       question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
+    # M4 AI cost controls (D11, plan m4-limits section 2.6; enforced by WP-Q3's
+    # AiGenerationGuard, which also charges the ai-generate rate policy).
+    server-key:
+      # Global per-UTC-day budget of server-key generations (fails closed).
+      daily-budget: "${SOCKBOWL_AI_SERVER_DAILY_BUDGET:200}"
+      # Models a server-key call may request via X-Model (comma-separated).
+      # BYO-key calls may use any model.
+      allowed-models: "${SOCKBOWL_AI_SERVER_ALLOWED_MODELS:${spring.ai.openai.chat.options.model}}"
+    max-topic-length: 200
+    max-context-length: 2000
+    max-question-count: 30
+    # ai:inflight:{sub} concurrency lock: TTL, and the Retry-After a second
+    # concurrent call is told.
+    inflight-ttl: 660s
+    concurrency-retry-after: 30s
+  # ---------------------------------------------------------------------------
+  # M4 limits, quotas and abuse controls (plan m4-limits sections 2.1-2.4, 2.10).
+  # The limiter core is a port of sockbowl-game's; the Redis key schema is shared
+  # (UsageKeys). Every capacity the compose overlays tune has an explicit
+  # ${SOCKBOWL_RL_*} placeholder, because relaxed env binding cannot target
+  # dashed map keys.
+  ratelimit:
+    enabled: "${SOCKBOWL_RATELIMIT_ENABLED:true}"
+    redis:
+      timeout: 200ms
+      connect-timeout: 500ms
+      reconnect-backoff: 5s
+    # azp values whose tokens are the SERVICE tier (on top of
+    # sockbowl.auth.service-client-id, default sockbowl-game-backend).
+    service-clients: "${SOCKBOWL_RL_SERVICE_CLIENTS:sockbowl-game-backend}"
+    events:
+      service: questions
+      max-len: 1000
+      sample-window: 10s
+    exempt:
+      - /actuator/health
+      - /actuator/health/**
+    tier-multipliers:
+      guest: 1.0
+      player: 1.0
+      author: 2.0
+      moderator: 3.0
+      admin: 10.0
+      service: 1.0
+    policies:
+      default:
+        capacity: "${SOCKBOWL_RL_DEFAULT_CAPACITY:120}"
+        refill-period: "${SOCKBOWL_RL_DEFAULT_REFILL_PERIOD:1m}"
+        key-by: user-or-ip
+      service:
+        capacity: "${SOCKBOWL_RL_SERVICE_CAPACITY:6000}"
+        refill-period: "${SOCKBOWL_RL_SERVICE_REFILL_PERIOD:1m}"
+        key-by: user
+      # Coarse cap on POST /graphql (a real HTTP 429). Its route opts out of the
+      # default fallback; the game service token gets 20x (= the service ceiling).
+      graphql-http:
+        capacity: "${SOCKBOWL_RL_GRAPHQL_HTTP_CAPACITY:300}"
+        refill-period: "${SOCKBOWL_RL_GRAPHQL_HTTP_REFILL_PERIOD:1m}"
+        key-by: user-or-ip
+        tier-multipliers:
+          service: 20.0
+      # Per top-level GraphQL field (WP-Q2's instrumentation).
+      graphql-read:
+        capacity: "${SOCKBOWL_RL_GRAPHQL_READ_CAPACITY:240}"
+        refill-period: "${SOCKBOWL_RL_GRAPHQL_READ_REFILL_PERIOD:1m}"
+        key-by: user-or-ip
+      graphql-write:
+        capacity: "${SOCKBOWL_RL_GRAPHQL_WRITE_CAPACITY:60}"
+        refill-period: "${SOCKBOWL_RL_GRAPHQL_WRITE_REFILL_PERIOD:1m}"
+        key-by: user
+      # Charged by WP-Q3's AiGenerationGuard (REST generate and GraphQL
+      # generateAndAddTossup), never by a route or field mapping, so a call is
+      # charged once. Fails closed with Redis down (D12).
+      ai-generate:
+        capacity: "${SOCKBOWL_RL_AI_GENERATE_CAPACITY:10}"
+        refill-period: "${SOCKBOWL_RL_AI_GENERATE_REFILL_PERIOD:1h}"
+        key-by: user
+        fail-closed: true
+      import:
+        capacity: "${SOCKBOWL_RL_IMPORT_CAPACITY:10}"
+        refill-period: "${SOCKBOWL_RL_IMPORT_REFILL_PERIOD:1h}"
+        key-by: user
+      import-ip:
+        capacity: "${SOCKBOWL_RL_IMPORT_IP_CAPACITY:20}"
+        refill-period: "${SOCKBOWL_RL_IMPORT_IP_REFILL_PERIOD:1h}"
+        key-by: ip
+      bank-read:
+        capacity: "${SOCKBOWL_RL_BANK_READ_CAPACITY:30}"
+        refill-period: "${SOCKBOWL_RL_BANK_READ_REFILL_PERIOD:1m}"
+        key-by: user-or-ip
+    routes:
+      - method: POST
+        pattern: /graphql
+        policies: [graphql-http]
+        fallback: false
+      - method: POST
+        pattern: /api/qbreader/import-random
+        policies: [import, import-ip]
+      - method: POST
+        pattern: /api/qbreader/count
+        policies: [bank-read]
+      - method: GET
+        pattern: /api/qbreader/category-counts
+        policies: [bank-read]
+      - method: GET
+        pattern: /api/qbreader/taxonomy-counts
+        policies: [bank-read]
+      - method: GET
+        pattern: /api/qbreader/stats
+        policies: [bank-read]
+      - method: GET
+        pattern: /api/qbreader/dimensions
+        policies: [bank-read]
+    graphql:
+      # Top-level field -> policy for WP-Q2's field-level limiter. Unmapped
+      # Mutation fields use graphql-write, unmapped Query fields graphql-read.
+      # generateAndAddTossup stays on graphql-write here: its ai-generate charge
+      # is made by the AiGenerationGuard (WP-Q3) so it is never charged twice.
+      # INT1 adds M3's import/clone mutations.
+      default-query-policy: graphql-read
+      default-mutation-policy: graphql-write
+      fields:
+        generateAndAddTossup: graphql-write
+      # Static caps (WP-Q2). max-complexity is provisional until Q2 calibrates it
+      # against every ng and game document (2x the largest).
+      max-depth: 15
+      max-complexity: 1000
+  quota:
+    enabled: "${SOCKBOWL_QUOTA_ENABLED:true}"
+    daily-ttl: 48h
+    # D10/D11 defaults; -1 = unlimited. Metric names with a dot need the
+    # bracketed key. packets-owned is counted in Neo4j, the rest in Redis.
+    tiers:
+      guest:
+        "[ai.generations]": 0
+        imports: 0
+        packets-owned: 0
+      player:
+        "[ai.generations]": 0
+        imports: 0
+        packets-owned: 0
+      author:
+        "[ai.generations]": "${SOCKBOWL_QUOTA_AUTHOR_AI_GENERATIONS:20}"
+        imports: "${SOCKBOWL_QUOTA_AUTHOR_IMPORTS:10}"
+        packets-owned: "${SOCKBOWL_QUOTA_AUTHOR_PACKETS_OWNED:300}"
+      moderator:
+        "[ai.generations]": "${SOCKBOWL_QUOTA_MODERATOR_AI_GENERATIONS:20}"
+        imports: "${SOCKBOWL_QUOTA_MODERATOR_IMPORTS:10}"
+        packets-owned: "${SOCKBOWL_QUOTA_MODERATOR_PACKETS_OWNED:300}"
+      admin:
+        "[ai.generations]": -1
+        imports: -1
+        packets-owned: -1
+  # Enforcement of game-published bans (D8, WP-Q4). Both checks fail open.
+  bans:
+    # ban:{sub} lookups are cached this long per subject.
+    cache-ttl: 30s
+  ipban:
+    # ipban:all is reloaded into memory this often.
+    refresh-interval: 15s
+  admin:
+    usage:
+      # GET /api/admin/usage/content-counts?subs=... accepts at most this many.
+      max-subs: 100
 
 spring:
+  data:
+    redis:
+      # The Redis shared with sockbowl-game (limits, quotas, bans, usage); the
+      # database must be the same number game uses.
+      host: "${SOCKBOWL_REDIS_HOST:localhost}"
+      port: "${SOCKBOWL_REDIS_PORT:6379}"
+      database: "${SOCKBOWL_DATABASE:0}"
   security:
     oauth2:
       resourceserver:
