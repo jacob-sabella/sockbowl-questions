@@ -270,33 +270,33 @@ class GraphQlPacketReadAuthTest {
 
         graphql(rename, admin).andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
         graphql(publish, admin).andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
-        verify(authoringService, never()).renamePacket(any(), any());
-        verify(authoringService, never()).setPacketVisibility(any(), any());
+        verify(authoringService, never()).renamePacket(any(), any(), any());
+        verify(authoringService, never()).setPacketVisibility(any(), any(), any());
     }
 
     @Test
     void ephemeralMayBeDeletedOnlyWithManageAny() throws Exception {
         String delete = "mutation { deletePacket(id: \"eph\") }";
-        when(authoringService.deletePacket("eph")).thenReturn(true);
+        when(authoringService.deletePacket("eph", null)).thenReturn(true);
 
         graphql(delete, as("author-sub", "packet:delete", "packet:update"))
                 .andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
-        verify(authoringService, never()).deletePacket(any());
+        verify(authoringService, never()).deletePacket(any(), any());
 
         graphql(delete, as("admin-sub", "packet:delete", "packet:manage-any"))
                 .andExpect(jsonPath("$.errors").doesNotExist())
                 .andExpect(jsonPath("$.data.deletePacket").value(true));
-        verify(authoringService).deletePacket("eph");
+        verify(authoringService).deletePacket("eph", null);
     }
 
     @Test
     void ownerMayStillDeleteOwnDraft() throws Exception {
-        when(authoringService.deletePacket("draft")).thenReturn(true);
+        when(authoringService.deletePacket("draft", null)).thenReturn(true);
         graphql("mutation { deletePacket(id: \"draft\") }", as(OWNER, "packet:delete"))
                 .andExpect(jsonPath("$.errors").doesNotExist());
         graphql("mutation { deletePacket(id: \"draft\") }", as("author2-sub", "packet:delete"))
                 .andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
-        verify(authoringService).deletePacket("draft");
+        verify(authoringService).deletePacket("draft", null);
     }
 
     /* ---------------------------- setPacketVisibility ---------------------------- */
@@ -307,7 +307,7 @@ class GraphQlPacketReadAuthTest {
     @Test
     void setPacketVisibilityAnonymousIsUnauthorized() throws Exception {
         graphql(PUBLISH).andExpect(jsonPath("$.errors[0].extensions.classification").value("UNAUTHORIZED"));
-        verify(authoringService, never()).setPacketVisibility(any(), any());
+        verify(authoringService, never()).setPacketVisibility(any(), any(), any());
     }
 
     @Test
@@ -319,20 +319,20 @@ class GraphQlPacketReadAuthTest {
         // The service token can read drafts but never change them.
         graphql(PUBLISH, as("svc", "packet:read", "packet:read-answers"))
                 .andExpect(jsonPath("$.errors[0].extensions.classification").value("FORBIDDEN"));
-        verify(authoringService, never()).setPacketVisibility(any(), any());
+        verify(authoringService, never()).setPacketVisibility(any(), any(), any());
     }
 
     @Test
     void ownerAndManageAnyMayPublish() throws Exception {
         Packet result = packet("draft", PacketVisibility.PUBLISHED);
-        when(authoringService.setPacketVisibility("draft", PacketVisibility.PUBLISHED)).thenReturn(result);
+        when(authoringService.setPacketVisibility("draft", PacketVisibility.PUBLISHED, null)).thenReturn(result);
 
         graphql(PUBLISH, as(OWNER, "packet:update"))
                 .andExpect(jsonPath("$.errors").doesNotExist())
                 .andExpect(jsonPath("$.data.setPacketVisibility.visibility").value("PUBLISHED"));
         graphql(PUBLISH, as("admin-sub", "packet:update", "packet:manage-any"))
                 .andExpect(jsonPath("$.errors").doesNotExist());
-        verify(authoringService, org.mockito.Mockito.times(2)).setPacketVisibility(eq("draft"), eq(PacketVisibility.PUBLISHED));
+        verify(authoringService, org.mockito.Mockito.times(2)).setPacketVisibility(eq("draft"), eq(PacketVisibility.PUBLISHED), isNull());
     }
 
     /* --------------------------------- helpers --------------------------------- */

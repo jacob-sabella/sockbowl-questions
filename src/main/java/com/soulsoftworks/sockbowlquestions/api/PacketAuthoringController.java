@@ -7,11 +7,8 @@ import com.soulsoftworks.sockbowlquestions.api.input.CreatePacketInput;
 import com.soulsoftworks.sockbowlquestions.api.input.GenerateTossupInput;
 import com.soulsoftworks.sockbowlquestions.api.input.TossupInput;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Category;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
-import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.service.PacketAuthoringService;
@@ -25,6 +22,10 @@ import org.springframework.stereotype.Controller;
 /**
  * Thin GraphQL mutation layer for packet/question authoring. All orchestration,
  * ordering, and validation live in {@link PacketAuthoringService}.
+ *
+ * <p>Every mutation that targets an existing packet or its content accepts an optional
+ * {@code expectedVersion} (M3, PB-18) and passes it through to the service. Taxonomy
+ * creation moved to {@link TaxonomyController}.
  */
 @Controller
 public class PacketAuthoringController {
@@ -46,14 +47,15 @@ public class PacketAuthoringController {
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#id)")
-    public Packet renamePacket(@Argument String id, @Argument String name) {
-        return authoringService.renamePacket(id, name);
+    public Packet renamePacket(@Argument String id, @Argument String name, @Argument Integer expectedVersion) {
+        return authoringService.renamePacket(id, name, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#id)")
-    public Packet setPacketDifficulty(@Argument String id, @Argument String difficultyId) {
-        return authoringService.setPacketDifficulty(id, difficultyId);
+    public Packet setPacketDifficulty(@Argument String id, @Argument String difficultyId,
+                                      @Argument Integer expectedVersion) {
+        return authoringService.setPacketDifficulty(id, difficultyId, expectedVersion);
     }
 
     /**
@@ -63,15 +65,16 @@ public class PacketAuthoringController {
      */
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#id)")
-    public Packet setPacketVisibility(@Argument String id, @Argument PacketVisibility visibility) {
-        return authoringService.setPacketVisibility(id, visibility);
+    public Packet setPacketVisibility(@Argument String id, @Argument PacketVisibility visibility,
+                                      @Argument Integer expectedVersion) {
+        return authoringService.setPacketVisibility(id, visibility, expectedVersion);
     }
 
     /** manage-any may also delete a game-only (EPHEMERAL) packet, which nobody may edit (D15). */
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:delete') and @packetAuthorizationService.canDelete(#id)")
-    public boolean deletePacket(@Argument String id) {
-        return authoringService.deletePacket(id);
+    public boolean deletePacket(@Argument String id, @Argument Integer expectedVersion) {
+        return authoringService.deletePacket(id, expectedVersion);
     }
 
     /* ------------------------------- Tossups ------------------------------- */
@@ -80,28 +83,32 @@ public class PacketAuthoringController {
     @PreAuthorize("hasAuthority('packet:create') and @packetAuthorizationService.canManage(#packetId)")
     public Packet addTossupToPacket(@Argument String packetId,
                                     @Argument TossupInput input,
-                                    @Argument Integer order) {
-        return authoringService.addTossupToPacket(packetId, input, order);
+                                    @Argument Integer order,
+                                    @Argument Integer expectedVersion) {
+        return authoringService.addTossupToPacket(packetId, input, order, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManageTossup(#id)")
-    public Tossup updateTossup(@Argument String id, @Argument TossupInput input) {
-        return authoringService.updateTossup(id, input);
+    public Tossup updateTossup(@Argument String id, @Argument TossupInput input,
+                               @Argument Integer expectedVersion) {
+        return authoringService.updateTossup(id, input, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:delete') and @packetAuthorizationService.canManage(#packetId)")
-    public Packet removeTossupFromPacket(@Argument String packetId, @Argument String tossupId) {
-        return authoringService.removeTossupFromPacket(packetId, tossupId);
+    public Packet removeTossupFromPacket(@Argument String packetId, @Argument String tossupId,
+                                         @Argument Integer expectedVersion) {
+        return authoringService.removeTossupFromPacket(packetId, tossupId, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#packetId)")
     public Packet reorderTossup(@Argument String packetId,
                                 @Argument String tossupId,
-                                @Argument int newOrder) {
-        return authoringService.reorderTossup(packetId, tossupId, newOrder);
+                                @Argument int newOrder,
+                                @Argument Integer expectedVersion) {
+        return authoringService.reorderTossup(packetId, tossupId, newOrder, expectedVersion);
     }
 
     /* -------------------------------- Bonuses ------------------------------ */
@@ -110,28 +117,32 @@ public class PacketAuthoringController {
     @PreAuthorize("hasAuthority('packet:create') and @packetAuthorizationService.canManage(#packetId)")
     public Packet addBonusToPacket(@Argument String packetId,
                                    @Argument BonusInput input,
-                                   @Argument Integer order) {
-        return authoringService.addBonusToPacket(packetId, input, order);
+                                   @Argument Integer order,
+                                   @Argument Integer expectedVersion) {
+        return authoringService.addBonusToPacket(packetId, input, order, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManageBonus(#id)")
-    public Bonus updateBonus(@Argument String id, @Argument BonusUpdateInput input) {
-        return authoringService.updateBonus(id, input);
+    public Bonus updateBonus(@Argument String id, @Argument BonusUpdateInput input,
+                             @Argument Integer expectedVersion) {
+        return authoringService.updateBonus(id, input, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:delete') and @packetAuthorizationService.canManage(#packetId)")
-    public Packet removeBonusFromPacket(@Argument String packetId, @Argument String bonusId) {
-        return authoringService.removeBonusFromPacket(packetId, bonusId);
+    public Packet removeBonusFromPacket(@Argument String packetId, @Argument String bonusId,
+                                        @Argument Integer expectedVersion) {
+        return authoringService.removeBonusFromPacket(packetId, bonusId, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManage(#packetId)")
     public Packet reorderBonus(@Argument String packetId,
                                @Argument String bonusId,
-                               @Argument int newOrder) {
-        return authoringService.reorderBonus(packetId, bonusId, newOrder);
+                               @Argument int newOrder,
+                               @Argument Integer expectedVersion) {
+        return authoringService.reorderBonus(packetId, bonusId, newOrder, expectedVersion);
     }
 
     /* ------------------------------ Bonus parts ---------------------------- */
@@ -140,62 +151,50 @@ public class PacketAuthoringController {
     @PreAuthorize("hasAuthority('packet:create') and @packetAuthorizationService.canManageBonus(#bonusId)")
     public Bonus addBonusPart(@Argument String bonusId,
                               @Argument BonusPartInput input,
-                              @Argument Integer order) {
-        return authoringService.addBonusPart(bonusId, input, order);
+                              @Argument Integer order,
+                              @Argument Integer expectedVersion) {
+        return authoringService.addBonusPart(bonusId, input, order, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManageBonus(#bonusId)")
     public Bonus updateBonusPart(@Argument String bonusId,
                                  @Argument String bonusPartId,
-                                 @Argument BonusPartInput input) {
-        return authoringService.updateBonusPart(bonusId, bonusPartId, input);
+                                 @Argument BonusPartInput input,
+                                 @Argument Integer expectedVersion) {
+        return authoringService.updateBonusPart(bonusId, bonusPartId, input, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:delete') and @packetAuthorizationService.canManageBonus(#bonusId)")
-    public Bonus removeBonusPart(@Argument String bonusId, @Argument String bonusPartId) {
-        return authoringService.removeBonusPart(bonusId, bonusPartId);
+    public Bonus removeBonusPart(@Argument String bonusId, @Argument String bonusPartId,
+                                 @Argument Integer expectedVersion) {
+        return authoringService.removeBonusPart(bonusId, bonusPartId, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManageBonus(#bonusId)")
     public Bonus reorderBonusPart(@Argument String bonusId,
                                   @Argument String bonusPartId,
-                                  @Argument int newOrder) {
-        return authoringService.reorderBonusPart(bonusId, bonusPartId, newOrder);
+                                  @Argument int newOrder,
+                                  @Argument Integer expectedVersion) {
+        return authoringService.reorderBonusPart(bonusId, bonusPartId, newOrder, expectedVersion);
     }
 
-    /* ------------------------------- Taxonomy ------------------------------ */
-
-    @MutationMapping
-    @PreAuthorize("hasAuthority('taxonomy:manage')")
-    public Difficulty createDifficulty(@Argument String name) {
-        return authoringService.createDifficulty(name);
-    }
-
-    @MutationMapping
-    @PreAuthorize("hasAuthority('taxonomy:manage')")
-    public Category createCategory(@Argument String name) {
-        return authoringService.createCategory(name);
-    }
-
-    @MutationMapping
-    @PreAuthorize("hasAuthority('taxonomy:manage')")
-    public Subcategory createSubcategory(@Argument String name, @Argument String categoryId) {
-        return authoringService.createSubcategory(name, categoryId);
-    }
+    /* ------------------------------ Subcategory ---------------------------- */
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManageTossup(#tossupId)")
-    public Tossup setTossupSubcategory(@Argument String tossupId, @Argument String subcategoryId) {
-        return authoringService.setTossupSubcategory(tossupId, subcategoryId);
+    public Tossup setTossupSubcategory(@Argument String tossupId, @Argument String subcategoryId,
+                                       @Argument Integer expectedVersion) {
+        return authoringService.setTossupSubcategory(tossupId, subcategoryId, expectedVersion);
     }
 
     @MutationMapping
     @PreAuthorize("hasAuthority('packet:update') and @packetAuthorizationService.canManageBonus(#bonusId)")
-    public Bonus setBonusSubcategory(@Argument String bonusId, @Argument String subcategoryId) {
-        return authoringService.setBonusSubcategory(bonusId, subcategoryId);
+    public Bonus setBonusSubcategory(@Argument String bonusId, @Argument String subcategoryId,
+                                     @Argument Integer expectedVersion) {
+        return authoringService.setBonusSubcategory(bonusId, subcategoryId, expectedVersion);
     }
 
     /* ------------------------------- AI assist ----------------------------- */
@@ -204,7 +203,8 @@ public class PacketAuthoringController {
     @PreAuthorize("hasAuthority('question:generate') and @packetAuthorizationService.canManage(#packetId)")
     public Packet generateAndAddTossup(@Argument String packetId,
                                        @Argument GenerateTossupInput input,
-                                       @Argument Integer order) {
-        return authoringService.generateAndAddTossup(packetId, input, order);
+                                       @Argument Integer order,
+                                       @Argument Integer expectedVersion) {
+        return authoringService.generateAndAddTossup(packetId, input, order, expectedVersion);
     }
 }

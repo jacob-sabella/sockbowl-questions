@@ -59,6 +59,12 @@ sockbowl:
       question-count: "${SOCKBOWL_PACKET_QUESTION_COUNT:5}"
 
 spring:
+  graphql:
+    schema:
+      # Logs a report of schema fields without a data fetcher at startup. During M3
+      # the fields marked TODO(Qn) in schema.graphqls are expected to appear there.
+      inspection:
+        enabled: true
   security:
     oauth2:
       resourceserver:
