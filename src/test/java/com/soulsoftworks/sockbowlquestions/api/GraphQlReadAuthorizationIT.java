@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.neo4j.core.Neo4jClient;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -145,6 +146,65 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
 
         List<String> serviceIds = searchIds(serviceToken());
         assertThat(serviceIds).containsExactlyInAnyOrder(draftId, publishedId);
+    }
+
+    /* ------------------------ owner.id (Q-M2-01, the sub) ------------------------ */
+
+    private record Owner(String id, String name) {
+    }
+
+    private record PacketWithOwner(String id, Owner owner) {
+    }
+
+    private static final String OWNER_FIELDS = "id owner { id name }";
+
+    /**
+     * The owner's id is their Keycloak {@code sub}. Callers who may not read a PUBLISHED
+     * packet in full get only the display name, through every read path, so no read
+     * enumerates authors' subjects.
+     */
+    @Test
+    void anonymousAndPlayerSeeOwnerNameButNoOwnerIdOnPublishedPacket() {
+        for (String token : Arrays.asList(null, tokenFor(PLAYER), tokenFor(AUTHOR))) {
+            for (Owner owner : ownersOfPublished(token)) {
+                assertThat(owner).isNotNull();
+                assertThat(owner.id()).isNull();
+                assertThat(owner.name()).isEqualTo("owner-" + AUTHOR2_SUB);
+            }
+        }
+    }
+
+    @Test
+    void ownerServiceTokenAndManageAnySeeOwnerIdOnPublishedPacket() {
+        for (String token : List.of(tokenFor(AUTHOR2), serviceToken(), tokenFor(ADMIN))) {
+            for (Owner owner : ownersOfPublished(token)) {
+                assertThat(owner.id()).isEqualTo(AUTHOR2_SUB);
+                assertThat(owner.name()).isEqualTo("owner-" + AUTHOR2_SUB);
+            }
+        }
+    }
+
+    @Test
+    void ownerSeesOwnIdOnOwnDraft() {
+        PacketWithOwner draft = graphQlTester(tokenFor(AUTHOR))
+                .document("{ getPacketById(id: \"" + draftId + "\") { " + OWNER_FIELDS + " } }")
+                .execute().path("getPacketById").entity(PacketWithOwner.class).get();
+        assertThat(draft.owner().id()).isEqualTo(AUTHOR_SUB);
+    }
+
+    /** The published packet's owner as seen through getPacketById, getAllPackets and searchPacketsByName. */
+    private List<Owner> ownersOfPublished(String token) {
+        PacketWithOwner byId = graphQlTester(token)
+                .document("{ getPacketById(id: \"" + publishedId + "\") { " + OWNER_FIELDS + " } }")
+                .execute().path("getPacketById").entity(PacketWithOwner.class).get();
+        PacketWithOwner inAll = graphQlTester(token).document("{ getAllPackets { " + OWNER_FIELDS + " } }")
+                .execute().path("getAllPackets").entityList(PacketWithOwner.class).get()
+                .stream().filter(p -> publishedId.equals(p.id())).findFirst().orElseThrow();
+        PacketWithOwner inSearch = graphQlTester(token)
+                .document("{ searchPacketsByName(name: \"" + searchToken + "\") { " + OWNER_FIELDS + " } }")
+                .execute().path("searchPacketsByName").entityList(PacketWithOwner.class).get()
+                .stream().filter(p -> publishedId.equals(p.id())).findFirst().orElseThrow();
+        return Arrays.asList(byId.owner(), inAll.owner(), inSearch.owner());
     }
 
     /* -------------------------------- taxonomy ---------------------------------- */
