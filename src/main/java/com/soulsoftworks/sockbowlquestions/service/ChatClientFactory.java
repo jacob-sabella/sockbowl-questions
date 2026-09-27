@@ -2,11 +2,13 @@ package com.soulsoftworks.sockbowlquestions.service;
 
 import com.soulsoftworks.sockbowlquestions.config.AiConfig;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
+import com.soulsoftworks.sockbowlquestions.exception.AiProviderUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -19,14 +21,17 @@ import org.springframework.stereotype.Service;
 public class ChatClientFactory {
     private static final Logger logger = LoggerFactory.getLogger(ChatClientFactory.class);
 
-    private final ChatClient defaultChatClient;
+    // ObjectProvider (not a plain ChatClient) because the bean is absent when
+    // neither AI provider is enabled (see AiConfig); that's a valid runtime
+    // state we degrade gracefully for, not a wiring error.
+    private final ObjectProvider<ChatClient> defaultChatClientProvider;
 
     @Value("${spring.ai.openai.base-url:https://api.openai.com}")
     private String openAiBaseUrl;
 
     public ChatClientFactory(
-            @Qualifier("quizBowlQuestionWriterChatClient") ChatClient defaultChatClient) {
-        this.defaultChatClient = defaultChatClient;
+            @Qualifier("quizBowlQuestionWriterChatClient") ObjectProvider<ChatClient> defaultChatClientProvider) {
+        this.defaultChatClientProvider = defaultChatClientProvider;
     }
 
     /**
@@ -35,9 +40,18 @@ public class ChatClientFactory {
      *
      * @param context Request context containing optional API key, model, and LLM parameters
      * @return ChatClient configured with appropriate settings
+     * @throws AiProviderUnavailableException if no custom API key was supplied and no
+     *         default AI provider is configured (both OpenAI and Ollama disabled)
      */
     public ChatClient getChatClient(AiRequestContext context) {
         if (context == null || !context.hasCustomConfig()) {
+            ChatClient defaultChatClient = defaultChatClientProvider.getIfAvailable();
+            if (defaultChatClient == null) {
+                throw new AiProviderUnavailableException(
+                        "No AI chat provider is configured on the server, and no X-API-Key was provided. "
+                                + "Enable an AI provider (SPRING_AI_OPENAI_CHAT_ENABLED or SPRING_AI_OLLAMA_CHAT_ENABLED) "
+                                + "or supply your own X-API-Key/X-Model headers.");
+            }
             logger.debug("Using default ChatClient");
             return defaultChatClient;
         }

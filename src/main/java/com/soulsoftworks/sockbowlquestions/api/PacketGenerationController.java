@@ -3,6 +3,7 @@ package com.soulsoftworks.sockbowlquestions.api;
 import com.google.gson.Gson;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
+import com.soulsoftworks.sockbowlquestions.exception.AiProviderUnavailableException;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
@@ -10,6 +11,7 @@ import com.soulsoftworks.sockbowlquestions.service.QuestionGenerationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -122,6 +124,9 @@ public class PacketGenerationController {
             logger.info(resultMessage);
 
             return ResponseEntity.ok(new Gson().toJson(generatedPacket));
+        } catch (AiProviderUnavailableException e) {
+            logger.warn("Packet generation requested but no AI provider is available: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
         } catch (Exception e) {
             // Log the detail server-side; return a generic message so internal
             // exception text (stack details, upstream API errors) isn't leaked.

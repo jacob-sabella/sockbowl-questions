@@ -36,6 +36,12 @@ spring:
     async:
       request-timeout: 600000
   ai:
+    # model.chat picks which provider's ChatModel autoconfiguration actually
+    # runs (Spring AI 2.0's own selector). AiChatModelSelectorEnvironmentPostProcessor
+    # derives it from the openai/ollama chat.enabled flags below (which compose
+    # sets via SPRING_AI_OPENAI_CHAT_ENABLED / SPRING_AI_OLLAMA_CHAT_ENABLED) so
+    # that setting either, both or neither flag keeps working — set model.chat
+    # directly (e.g. SPRING_AI_MODEL_CHAT=openai) to skip that derivation.
     openai:
       api-key: "${OPENAI_API_KEY:sk-openai-key}"
       chat:

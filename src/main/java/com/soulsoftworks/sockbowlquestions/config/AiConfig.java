@@ -1,9 +1,12 @@
 
 package com.soulsoftworks.sockbowlquestions.config;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -94,11 +97,44 @@ public class AiConfig {
      * Creates and configures a ChatClient bean with appropriate advisors and system prompts
      * for quizbowl question generation and question answering.
      *
-     * @param chatClientBuilder Builder for creating the ChatClient
-     * @return Configured ChatClient instance
+     * @param chatClientBuilderProvider Builder for creating the ChatClient. An
+     *        {@code ObjectProvider} rather than a plain {@code ChatClient.Builder}
+     *        because that bean doesn't exist when neither AI provider is enabled
+     *        (see {@link AiChatModelSelectorEnvironmentPostProcessor}). Resolved
+     *        lazily at bean-creation time so it correctly sees Spring AI's
+     *        autoconfiguration-provided builder regardless of configuration
+     *        class processing order — unlike {@code @ConditionalOnBean}, which
+     *        Spring Boot only guarantees to work reliably inside
+     *        {@code @AutoConfiguration} classes, not plain (e.g. component-scanned)
+     *        {@code @Configuration} classes like this one.
+     * @return Configured ChatClient instance, or {@code null} if no ChatModel is
+     *         configured; downstream consumers (see {@code ChatClientFactory})
+     *         treat that as "no default provider" and degrade at request time
+     *         instead of failing application startup.
      */
     @Bean(name = "quizBowlQuestionWriterChatClient")
-    public ChatClient chatClient(ChatClient.Builder chatClientBuilder) {
+    @Nullable
+    public ChatClient chatClient(ObjectProvider<ChatClient.Builder> chatClientBuilderProvider) {
+        ChatClient.Builder chatClientBuilder;
+        try {
+            // ChatClientAutoConfiguration.chatClientBuilder() is registered
+            // unconditionally, but its own factory method has a hard
+            // (non-Optional) ChatModel parameter, so getIfAvailable() doesn't
+            // just return null when there's no ChatModel — it throws while
+            // trying to build it. Since AiChatModelSelectorEnvironmentPostProcessor
+            // guarantees at most one ChatModel bean ever exists, an unsatisfied
+            // dependency here can only mean "zero", i.e. no provider configured.
+            chatClientBuilder = chatClientBuilderProvider.getIfAvailable();
+        } catch (BeansException e) {
+            logger.warn("No AI chat provider is configured (spring.ai.model.chat=none); "
+                    + "generation will only work with a per-request X-API-Key. ({})", e.getMessage());
+            return null;
+        }
+        if (chatClientBuilder == null) {
+            logger.warn("No AI chat provider is configured (spring.ai.model.chat=none); "
+                    + "generation will only work with a per-request X-API-Key.");
+            return null;
+        }
 
         logger.info("Initializing ChatClient with AI provider: {}", aiProvider);
         logger.info("ChatClient builder will use configured model from Spring AI autoconfiguration");
