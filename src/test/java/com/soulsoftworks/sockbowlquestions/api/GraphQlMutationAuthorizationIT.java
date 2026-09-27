@@ -31,7 +31,8 @@ import static org.mockito.Mockito.when;
  * AUTH-20 (questions): every GraphQL mutation, with real Keycloak tokens, over the
  * real {@code POST /graphql} HTTP path. Anonymous gives {@code UNAUTHORIZED}; a
  * caller with the wrong role or without ownership gives {@code FORBIDDEN}; the
- * owner and {@code packet:manage-any} succeed.
+ * owner and {@code packet:manage-any} succeed. The game service token is
+ * {@code FORBIDDEN} everywhere, and nobody may edit a game-only EPHEMERAL packet.
  *
  * <p>{@link com.soulsoftworks.sockbowlquestions.api.GraphQlSecurityErrorMappingTest} and
  * {@link GraphQlPacketReadAuthTest} (Q1/Q2) already prove the classification mapping and
@@ -81,8 +82,13 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
         return NAME_PREFIX + UUID.randomUUID();
     }
 
-    /** A packet with one tossup and one bonus (with one part), owned by {@code ownerId} (null = ownerless). */
+    /** A DRAFT packet with one tossup and one bonus (with one part), owned by {@code ownerId} (null = ownerless). */
     private Fixture seed(String ownerId) {
+        return seed(ownerId, PacketVisibility.DRAFT);
+    }
+
+    /** {@link #seed(String)} with the given visibility (EPHEMERAL packets are ownerless, D15). */
+    private Fixture seed(String ownerId, PacketVisibility visibility) {
         List<Map<String, Object>> tossups = List.of(Map.of(
                 "question", "Q?", "answer", "A",
                 "category", "Q3MutCat", "subcategory", "Q3MutSub", "remoteId", "", "order", 0));
@@ -90,7 +96,8 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
                 "preamble", "Pre", "category", "Q3MutCat", "subcategory", "Q3MutSub", "remoteId", "", "order", 0,
                 "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0))));
         String packetId = packetRepository.batchCreatePacket(uniqueName(), "Easy", tossups, bonuses,
-                ownerId, ownerId == null ? null : "owner-" + ownerId, PacketVisibility.DRAFT.name(), null);
+                ownerId, ownerId == null ? null : "owner-" + ownerId, visibility.name(),
+                visibility == PacketVisibility.EPHEMERAL ? "import-random" : null);
         Packet loaded = packetRepository.findById(packetId).orElseThrow();
         var tossup = loaded.getTossups().get(0).getTossup();
         var bonus = loaded.getBonuses().get(0).getBonus();
@@ -178,6 +185,8 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
         assertClassification(graphQlTester(null).document(docAgainstAuthorsPacket).execute(), "UNAUTHORIZED");
         assertClassification(graphQlTester(tokenFor(PLAYER)).document(docAgainstAuthorsPacket).execute(), "FORBIDDEN");
         assertClassification(graphQlTester(tokenFor(AUTHOR2)).document(docAgainstAuthorsPacket).execute(), "FORBIDDEN");
+        // The game backend's service token reads everything but may write nothing (Q-M2-03).
+        assertClassification(graphQlTester(serviceToken()).document(docAgainstAuthorsPacket).execute(), "FORBIDDEN");
 
         Fixture ownerless = seed(null);
         assertClassification(graphQlTester(tokenFor(AUTHOR)).document(mutation.query().apply(ownerless)).execute(),
@@ -190,6 +199,22 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
         assertSucceeds(graphQlTester(tokenFor(ADMIN)).document(mutation.query().apply(ownedByAuthor2)).execute());
     }
 
+    /**
+     * D15 over the wire (Q-M2-03): a game-only EPHEMERAL packet is not editable by anyone,
+     * not even {@code packet:manage-any}, through any node-level or packet-level mutation.
+     * The one exception is {@code deletePacket}, which {@code packet:manage-any} may use.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("ownershipGatedMutations")
+    void adminCannotEditAnEphemeralPacketButMayDeleteIt(MutationCase mutation) {
+        String doc = mutation.query().apply(seed(null, PacketVisibility.EPHEMERAL));
+        if (mutation.label().equals("deletePacket")) {
+            assertSucceeds(graphQlTester(tokenFor(ADMIN)).document(doc).execute());
+        } else {
+            assertClassification(graphQlTester(tokenFor(ADMIN)).document(doc).execute(), "FORBIDDEN");
+        }
+    }
+
     /* -------------------------------- createPacket -------------------------------- */
 
     @Test
@@ -198,6 +223,7 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
 
         assertClassification(graphQlTester(null).document(query).execute(), "UNAUTHORIZED");
         assertClassification(graphQlTester(tokenFor(PLAYER)).document(query).execute(), "FORBIDDEN");
+        assertClassification(graphQlTester(serviceToken()).document(query).execute(), "FORBIDDEN");
         assertSucceeds(graphQlTester(tokenFor(AUTHOR)).document(query).execute());
         assertSucceeds(graphQlTester(tokenFor(ADMIN)).document(query).execute());
     }
@@ -222,6 +248,7 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
             assertClassification(graphQlTester(null).document(doc).execute(), "UNAUTHORIZED");
             assertClassification(graphQlTester(tokenFor(PLAYER)).document(doc).execute(), "FORBIDDEN");
             assertClassification(graphQlTester(tokenFor(MODERATOR)).document(doc).execute(), "FORBIDDEN");
+            assertClassification(graphQlTester(serviceToken()).document(doc).execute(), "FORBIDDEN");
             assertSucceeds(graphQlTester(tokenFor(AUTHOR)).document(query.apply(null)).execute());
             assertSucceeds(graphQlTester(tokenFor(ADMIN)).document(query.apply(null)).execute());
         }
