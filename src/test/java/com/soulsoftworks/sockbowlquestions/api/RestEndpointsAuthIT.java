@@ -115,6 +115,17 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
                 .exchange().expectStatus().isForbidden();
     }
 
+    /**
+     * Q2-02: the game backend's service token ({@code packet:read}/{@code packet:read-answers})
+     * has no {@code question:generate}, so it's a valid bearer but the wrong role: 403, not 401.
+     */
+    @Test
+    void generateServiceTokenIs403() {
+        client().get().uri("/api/packets/generate?topic=Science")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceToken())
+                .exchange().expectStatus().isForbidden();
+    }
+
     @Test
     void generateAuthorSucceeds() throws Exception {
         Packet p = new Packet();
