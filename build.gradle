@@ -12,7 +12,10 @@ ext {
 	// (which resolves sockbowlquestions-models:1.0.+) picks up the new jar.
 	// 1: M2 Q2 added Packet.visibility / PacketVisibility and Packet.answersRedacted.
 	// 2: M2 Q4 added PacketVisibility.EPHEMERAL (game-only guest packets, D15).
-	modelsLocalRevision = "2"
+	// 3: M3's own branch (not this one). 4: M4 Q5 added D13 provenance/auditing fields
+	//    (source, aiModel, createdBy/At, lastModifiedBy/At) on Packet/Tossup/Bonus/BonusPart.
+	//    Published only to this milestone's private -Dmaven.repo.local, not mavenLocal proper.
+	modelsLocalRevision = "4"
 }
 
 group = 'com.soulsoftworks'
