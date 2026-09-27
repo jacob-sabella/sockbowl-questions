@@ -12,7 +12,7 @@ import org.springframework.data.neo4j.core.support.UUIDStringGenerator;
 
 @Node
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class BonusPart {

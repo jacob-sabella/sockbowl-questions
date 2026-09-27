@@ -16,8 +16,53 @@ import java.util.Optional;
 public interface PacketRepository extends Neo4jRepository<Packet, String> {
     Packet getPacketById(String id);
 
+    /**
+     * Unfiltered name search. Internal use only (e.g. unique-name checks); caller-facing
+     * reads go through {@link #searchVisibleByName} and {@code PacketReadPolicy}.
+     */
     @Query("MATCH (p:Packet) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p")
     List<Packet> searchByName(String name);
+
+    /**
+     * Ids of the packets a caller without full-read rights may see (D2): those whose
+     * effective visibility is publicly readable, plus the caller's own packets.
+     * Returns ids so the caller can load full packets with {@code findAllById}.
+     *
+     * @param publicVisibilities names of the publicly readable {@code PacketVisibility} values
+     * @param legacyVisibility   the visibility a node without one counts as
+     * @param ownerId            the caller's {@code sub}, or null for anonymous callers
+     */
+    @Query("""
+            MATCH (p:Packet)
+            WHERE coalesce(p.visibility, $legacyVisibility) IN $publicVisibilities
+               OR ($ownerId IS NOT NULL AND p.ownerId = $ownerId)
+            RETURN p.id
+            """)
+    List<String> findVisiblePacketIds(@Param("publicVisibilities") List<String> publicVisibilities,
+                                      @Param("legacyVisibility") String legacyVisibility,
+                                      @Param("ownerId") String ownerId);
+
+    /** {@link #searchByName} restricted to what {@link #findVisiblePacketIds} would return. */
+    @Query("""
+            MATCH (p:Packet)
+            WHERE toLower(p.name) CONTAINS toLower($name)
+              AND (coalesce(p.visibility, $legacyVisibility) IN $publicVisibilities
+                   OR ($ownerId IS NOT NULL AND p.ownerId = $ownerId))
+            RETURN p
+            """)
+    List<Packet> searchVisibleByName(@Param("name") String name,
+                                     @Param("publicVisibilities") List<String> publicVisibilities,
+                                     @Param("legacyVisibility") String legacyVisibility,
+                                     @Param("ownerId") String ownerId);
+
+    /**
+     * One-time backfill for D2: legacy packets without a visibility become PUBLISHED so
+     * existing bank packets stay usable by guests. Idempotent (only touches nulls).
+     *
+     * @return how many packets were updated
+     */
+    @Query("MATCH (p:Packet) WHERE p.visibility IS NULL SET p.visibility = $visibility RETURN count(p)")
+    long backfillMissingVisibility(@Param("visibility") String visibility);
 
     /** Resolves the owning packet of a tossup, for ownership checks on node-level mutations. */
     @Query("MATCH (p:Packet)-[:CONTAINS_TOSSUP]->(t:Tossup {id: $tossupId}) RETURN p LIMIT 1")
@@ -37,12 +82,14 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * @param tossups list of maps: question, answer, category, subcategory, order
      * @param bonuses list of maps: preamble, category, subcategory, order, parts
      *                (each part: question, answer, order)
+     * @param visibility name of the new packet's {@code PacketVisibility}
      * @return the new packet's id
      */
     @Query("""
             MERGE (d:Difficulty {name: $difficultyName})
               ON CREATE SET d.id = randomUUID()
-            CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId, ownerDisplayName: $ownerDisplayName})
+            CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId, ownerDisplayName: $ownerDisplayName,
+                              visibility: $visibility})
             CREATE (p)-[:DIFFICULTY_LEVEL]->(d)
             WITH p
             CALL (p) {
@@ -77,7 +124,8 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
                              @Param("tossups") List<Map<String, Object>> tossups,
                              @Param("bonuses") List<Map<String, Object>> bonuses,
                              @Param("ownerId") String ownerId,
-                             @Param("ownerDisplayName") String ownerDisplayName);
+                             @Param("ownerDisplayName") String ownerDisplayName,
+                             @Param("visibility") String visibility);
 
     /**
      * Delete a packet and the question nodes it owns. Every packet's tossups/bonuses/

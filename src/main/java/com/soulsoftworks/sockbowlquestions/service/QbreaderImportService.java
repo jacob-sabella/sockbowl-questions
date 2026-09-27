@@ -2,6 +2,7 @@ package com.soulsoftworks.sockbowlquestions.service;
 
 import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.repository.BankRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import org.slf4j.Logger;
@@ -55,6 +56,19 @@ public class QbreaderImportService {
     public ImportOutcome importRandomPacket(QbRandomFilter filter, int tossupCount, int bonusCount,
                                             String name, Collection<String> excludeRemoteIds, boolean balanced,
                                             String ownerId, String ownerDisplayName) {
+        return importRandomPacket(filter, tossupCount, bonusCount, name, excludeRemoteIds, balanced,
+                ownerId, ownerDisplayName, PacketVisibility.defaultForNewPackets());
+    }
+
+    /**
+     * As above, persisting the packet with an explicit visibility. The short form
+     * uses the D2 default ({@link PacketVisibility#DRAFT}).
+     */
+    public ImportOutcome importRandomPacket(QbRandomFilter filter, int tossupCount, int bonusCount,
+                                            String name, Collection<String> excludeRemoteIds, boolean balanced,
+                                            String ownerId, String ownerDisplayName,
+                                            PacketVisibility visibility) {
+        PacketVisibility effectiveVisibility = visibility == null ? PacketVisibility.defaultForNewPackets() : visibility;
         List<String> exclude = excludeRemoteIds == null
                 ? List.of()
                 : new ArrayList<>(new LinkedHashSet<>(excludeRemoteIds));
@@ -114,11 +128,13 @@ public class QbreaderImportService {
         String packetName = uniqueName((name == null || name.isBlank()) ? "Custom packet" : name.trim());
 
         String id = packetRepository.batchCreatePacket(
-                packetName, difficultyLabel(diff), tossupRows, bonusRows, ownerId, ownerDisplayName);
+                packetName, difficultyLabel(diff), tossupRows, bonusRows, ownerId, ownerDisplayName,
+                effectiveVisibility.name());
         log.info("Generated local packet '{}' (id={}, {} tossups, {} bonuses)",
                 packetName, id, tossupRows.size(), bonusRows.size());
         return new ImportOutcome(
-                Packet.builder().id(id).name(packetName).ownerId(ownerId).ownerDisplayName(ownerDisplayName).build(),
+                Packet.builder().id(id).name(packetName).ownerId(ownerId).ownerDisplayName(ownerDisplayName)
+                        .visibility(effectiveVisibility).build(),
                 new ArrayList<>(new LinkedHashSet<>(usedRemoteIds)));
     }
 

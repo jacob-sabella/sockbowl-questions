@@ -15,7 +15,7 @@ import java.util.List;
 
 @Node
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class Bonus {

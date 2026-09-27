@@ -6,6 +6,7 @@ import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
@@ -139,6 +140,8 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
         Packet packet = packetBuilder
                 .bonuses(bonusList)
+                // D2: a freshly generated packet is a draft until its owner publishes it.
+                .visibility(PacketVisibility.defaultForNewPackets())
                 .build();
         packetRepository.save(packet);
 
