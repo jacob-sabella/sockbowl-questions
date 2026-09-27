@@ -1,16 +1,19 @@
 package com.soulsoftworks.sockbowlquestions.service;
 
 import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.repository.BankRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -41,10 +44,13 @@ public class QbreaderImportService {
 
     private final BankRepository bankRepository;
     private final PacketRepository packetRepository;
+    private final SecurityAuditorAware securityAuditorAware;
 
-    public QbreaderImportService(BankRepository bankRepository, PacketRepository packetRepository) {
+    public QbreaderImportService(BankRepository bankRepository, PacketRepository packetRepository,
+                                 SecurityAuditorAware securityAuditorAware) {
         this.bankRepository = bankRepository;
         this.packetRepository = packetRepository;
+        this.securityAuditorAware = securityAuditorAware;
     }
 
     /**
@@ -140,7 +146,9 @@ public class QbreaderImportService {
 
         String id = packetRepository.batchCreatePacket(
                 packetName, difficultyLabel(diff), tossupRows, bonusRows, ownerId, ownerDisplayName,
-                effectiveVisibility.name(), CREATED_VIA);
+                effectiveVisibility.name(), CREATED_VIA,
+                securityAuditorAware.currentAuditorValue(), Instant.now().toString(),
+                ContentSource.QBREADER_IMPORT.name());
         log.info("Generated local packet '{}' (id={}, visibility={}, {} tossups, {} bonuses)",
                 packetName, id, effectiveVisibility, tossupRows.size(), bonusRows.size());
         return new ImportOutcome(
