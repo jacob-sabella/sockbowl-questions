@@ -39,6 +39,8 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
     private String draftId;
     /** PUBLISHED, owned by {@link KeycloakAuthITBase#AUTHOR2} (so the service/admin "another user's" checks have a target). */
     private String publishedId;
+    /** EPHEMERAL, ownerless (D15): only the game service token may read it, never manage-any. */
+    private String ephemeralId;
 
     private record TossupAnswer(String answer) {
     }
@@ -57,6 +59,7 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
         searchToken = UUID.randomUUID().toString().substring(0, 8);
         draftId = seedPacket(AUTHOR_SUB, PacketVisibility.DRAFT, "SecretAnswer", "draft");
         publishedId = seedPacket(AUTHOR2_SUB, PacketVisibility.PUBLISHED, "PublicAnswer", "pub");
+        ephemeralId = seedPacket(null, PacketVisibility.EPHEMERAL, "EphemeralAnswer", "eph");
     }
 
     @AfterEach
@@ -112,6 +115,37 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
             PacketDetail detail = detail(serviceToken(), id);
             assertThat(detail.answersRedacted()).isFalse();
             assertThat(detail.tossups().get(0).tossup().answer()).isNotBlank();
+        }
+    }
+
+    /* ------------------------------ EPHEMERAL (D15, Q2-02) ----------------------------- */
+
+    /**
+     * A game-only packet (D15) is never publicly readable and has no owner to fall
+     * back on, so anonymous, player and even manage-any (admin) all get {@code null}:
+     * only {@code packet:read-answers} (the game service token) may see it at all.
+     */
+    @Test
+    void anonymousPlayerAndAdminGetPacketByIdOfEphemeralIsNull() {
+        for (String token : Arrays.asList(null, tokenFor(PLAYER), tokenFor(ADMIN))) {
+            graphQlTester(token).document("{ getPacketById(id: \"" + ephemeralId + "\") { id } }")
+                    .execute().path("getPacketById").valueIsNull();
+        }
+    }
+
+    @Test
+    void serviceTokenReadsFullEphemeralPacket() {
+        PacketDetail detail = detail(serviceToken(), ephemeralId);
+        assertThat(detail.visibility()).isEqualTo("EPHEMERAL");
+        assertThat(detail.answersRedacted()).isFalse();
+        assertThat(detail.tossups().get(0).tossup().answer()).isEqualTo("EphemeralAnswer");
+    }
+
+    @Test
+    void ephemeralPacketIsNeverListedOrSearchedEvenForTheServiceToken() {
+        for (String token : Arrays.asList(null, tokenFor(PLAYER), tokenFor(ADMIN), serviceToken())) {
+            assertThat(allPackets(token)).doesNotContainKey(ephemeralId);
+            assertThat(searchIds(token)).doesNotContain(ephemeralId);
         }
     }
 
