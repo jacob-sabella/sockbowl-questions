@@ -24,6 +24,14 @@ public class Subcategory {
     private String id;
     private String name;
 
+    /**
+     * {@code toLower(trim(name))}, maintained by {@code TaxonomyService} (M3 Q4, D4).
+     * Not exposed in GraphQL; scoped by category (two categories may each have a
+     * subcategory with the same {@code nameKey}), so there is no global uniqueness
+     * constraint on this field.
+     */
+    private String nameKey;
+
     @Relationship(type = "SUBCATEGORY_OF", direction = Relationship.Direction.OUTGOING)
     private Category category;
 }

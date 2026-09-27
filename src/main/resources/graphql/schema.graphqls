@@ -267,7 +267,7 @@ extend type Mutation {
   importPacket(input: ImportPacketInput!): ImportPacketResult!
   """Copy a packet the caller may read in full into a new DRAFT they own."""
   clonePacket(id: ID!, name: String): Packet!
-  """Taxonomy rename/merge, taxonomy:manage only (D4). TODO(Q4)"""
+  """Taxonomy rename/merge, taxonomy:manage only (D4)."""
   renameCategory(id: ID!, name: String!): Category!
   renameSubcategory(id: ID!, name: String!): Subcategory!
   renameDifficulty(id: ID!, name: String!): Difficulty!

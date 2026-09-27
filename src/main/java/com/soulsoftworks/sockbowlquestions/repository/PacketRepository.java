@@ -143,8 +143,9 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * Creates a whole packet — difficulty, tossups, bonuses, bonus parts, and
      * the taxonomy each references — in a single write, instead of ~40
      * sequential authoring calls. Categories/Subcategories/Difficulty are
-     * MERGE-d by name (subcategory scoped to its category) so the taxonomy is
-     * reused, not duplicated; new question nodes get fresh UUID ids.
+     * MERGE-d by {@code nameKey} (subcategory scoped to its category, M3 Q4, D4) so the
+     * taxonomy is reused, not duplicated, and follows the same dedupe rule as
+     * {@code TaxonomyService}'s create methods; new question nodes get fresh UUID ids.
      *
      * @param tossups list of maps: question, answer, category, subcategory, order
      * @param bonuses list of maps: preamble, category, subcategory, order, parts
@@ -158,8 +159,8 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * @return the new packet's id
      */
     @Query("""
-            MERGE (d:Difficulty {name: $difficultyName})
-              ON CREATE SET d.id = randomUUID()
+            MERGE (d:Difficulty {nameKey: toLower(trim($difficultyName))})
+              ON CREATE SET d.id = randomUUID(), d.name = $difficultyName
             CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId, ownerDisplayName: $ownerDisplayName,
                               visibility: $visibility, createdVia: $createdVia,
                               ephemeralCreatedAt: CASE WHEN $visibility = 'EPHEMERAL' THEN datetime() ELSE null END})
@@ -167,10 +168,10 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
             WITH p
             CALL (p) {
               UNWIND $tossups AS t
-                MERGE (cat:Category {name: t.category})
-                  ON CREATE SET cat.id = randomUUID()
-                MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {name: t.subcategory})
-                  ON CREATE SET sub.id = randomUUID()
+                MERGE (cat:Category {nameKey: toLower(trim(t.category))})
+                  ON CREATE SET cat.id = randomUUID(), cat.name = t.category
+                MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {nameKey: toLower(trim(t.subcategory))})
+                  ON CREATE SET sub.id = randomUUID(), sub.name = t.subcategory
                 CREATE (tu:Tossup {id: randomUUID(), question: t.question, answer: t.answer, remoteId: t.remoteId})
                 CREATE (tu)-[:SUBCATEGORY_IS]->(sub)
                 CREATE (p)-[:CONTAINS_TOSSUP {order: t.order}]->(tu)
@@ -178,10 +179,10 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
             WITH p
             CALL (p) {
               UNWIND $bonuses AS b
-                MERGE (cat:Category {name: b.category})
-                  ON CREATE SET cat.id = randomUUID()
-                MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {name: b.subcategory})
-                  ON CREATE SET sub.id = randomUUID()
+                MERGE (cat:Category {nameKey: toLower(trim(b.category))})
+                  ON CREATE SET cat.id = randomUUID(), cat.name = b.category
+                MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {nameKey: toLower(trim(b.subcategory))})
+                  ON CREATE SET sub.id = randomUUID(), sub.name = b.subcategory
                 CREATE (bo:Bonus {id: randomUUID(), preamble: b.preamble, remoteId: b.remoteId})
                 CREATE (sub)-[:SUBCATEGORY_IS]->(bo)
                 CREATE (p)-[:CONTAINS_BONUS {order: b.order}]->(bo)
