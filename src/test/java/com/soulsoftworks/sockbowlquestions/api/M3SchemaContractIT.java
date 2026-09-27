@@ -60,7 +60,6 @@ class M3SchemaContractIT extends Neo4jContainerTestBase {
      * outside this set is a regression (for example a controller method that lost its mapping).
      */
     private static final Set<String> ALLOWED_UNMAPPED = Set.of(
-            "Query.packets",            // TODO(Q5)
             "Mutation.renameCategory",  // TODO(Q4)
             "Mutation.renameSubcategory",
             "Mutation.renameDifficulty",
