@@ -8,7 +8,7 @@ plugins {
 ext { springAiVersion = "2.0.0" }
 
 group = 'com.soulsoftworks'
-version = resolveVersion()
+version = resolveVersion(providers)
 
 java {
 	sourceCompatibility = JavaVersion.VERSION_17
@@ -139,7 +139,7 @@ tasks.register('printVersion') {
 	doLast { println project.version }
 }
 
-static String resolveVersion() {
+static String resolveVersion(ProviderFactory providers) {
 	// GitHub Actions refs look like:
 	//  - refs/heads/feature/foo        (branch)
 	//  - refs/tags/v1.2.3              (tag)
@@ -164,7 +164,7 @@ static String resolveVersion() {
 	} else if (headRef) {
 		branchName = headRef
 	} else {
-		branchName = execAndRead("git rev-parse --abbrev-ref HEAD")
+		branchName = execAndRead(providers, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
 	}
 	if (!branchName) branchName = "detached"
 
@@ -175,7 +175,7 @@ static String resolveVersion() {
 	}
 
 	// Any other branch: sanitized branch name + short commit SHA for uniqueness
-	String shortSha = execAndRead("git rev-parse --short=7 HEAD") ?: "local"
+	String shortSha = execAndRead(providers, ["git", "rev-parse", "--short=7", "HEAD"]) ?: "local"
 	return "${sanitizeBranch(branchName)}-${shortSha}"
 }
 
@@ -189,11 +189,16 @@ static String sanitizeBranch(String name) {
 	return (name ?: "dev").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "-")
 }
 
-static String execAndRead(String cmd) {
+// Uses the configuration-time-safe ProviderFactory.exec (instead of Groovy's
+// String.execute()), which Gradle 9 deprecates for configuration-time process
+// launches and will remove in Gradle 11.
+static String execAndRead(ProviderFactory providers, List<String> cmd) {
 	try {
-		def p = cmd.execute()
-		p.waitFor()
-		return p.exitValue() == 0 ? p.text.trim() : null
+		def output = providers.exec {
+			commandLine(cmd)
+			ignoreExitValue = true
+		}
+		return output.result.get().exitValue == 0 ? output.standardOutput.asText.get().trim() : null
 	} catch (Exception ignored) {
 		return null
 	}
