@@ -30,10 +30,12 @@ import com.soulsoftworks.sockbowlquestions.repository.DifficultyRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.repository.SubcategoryRepository;
 import com.soulsoftworks.sockbowlquestions.repository.TossupRepository;
+import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -76,6 +78,7 @@ public class PacketAuthoringService {
     private final AiSecurityProperties aiSecurityProperties;
     private final ContentQuotaGuard contentQuotaGuard;
     private final PacketValidator validator;
+    private final SecurityAuditorAware securityAuditorAware;
 
     public PacketAuthoringService(PacketRepository packetRepository,
                                   TossupRepository tossupRepository,
@@ -86,7 +89,8 @@ public class PacketAuthoringService {
                                   QuestionGenerationService questionGenerationService,
                                   AiSecurityProperties aiSecurityProperties,
                                   ContentQuotaGuard contentQuotaGuard,
-                                  PacketValidator validator) {
+                                  PacketValidator validator,
+                                  SecurityAuditorAware securityAuditorAware) {
         this.packetRepository = packetRepository;
         this.tossupRepository = tossupRepository;
         this.bonusRepository = bonusRepository;
@@ -97,6 +101,7 @@ public class PacketAuthoringService {
         this.aiSecurityProperties = aiSecurityProperties;
         this.contentQuotaGuard = contentQuotaGuard;
         this.validator = validator;
+        this.securityAuditorAware = securityAuditorAware;
     }
 
     /* ------------------------------- Packet -------------------------------- */
@@ -581,7 +586,11 @@ public class PacketAuthoringService {
      */
     private void bumpVersion(String packetId, Integer expectedVersion) {
         Long expected = expectedVersion == null ? null : expectedVersion.longValue();
-        Long bumped = packetRepository.bumpVersion(packetId, expected);
+        // D13, M4-PV-01, INT1: stamps the packet's lastModifiedBy/lastModifiedAt on every
+        // successful bump, since a node-level mutation (tossup/bonus/bonus-part) never
+        // re-saves the packet itself.
+        Long bumped = packetRepository.bumpVersion(packetId, expected,
+                securityAuditorAware.currentAuditorValue(), Instant.now().toString());
         if (bumped != null) {
             return;
         }

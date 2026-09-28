@@ -1,0 +1,3 @@
+mutation ($sourceId: ID!, $targetId: ID!) {
+  mergeCategories(sourceId: $sourceId, targetId: $targetId) { id name }
+}

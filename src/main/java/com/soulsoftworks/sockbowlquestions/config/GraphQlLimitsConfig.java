@@ -46,18 +46,53 @@ import org.springframework.context.annotation.Configuration;
  *   <tr><td>every ng authoring mutation</td><td>1 to 6</td><td>1 to 3</td></tr>
  * </table>
  *
- * The cap is twice the maximum: {@code 2 x 41 = 82}. A document that selects the
- * full packet tree three times (for example three aliased {@code getAllPackets})
- * is rejected. INT1 re-measures with M3's documents; the test fails if any
- * document loses its 2x headroom.
+ * The cap is twice the maximum: {@code 2 x 41 = 82}. INT1 re-measures with M3's
+ * documents (still 41: the largest of the new documents, {@code importPacket},
+ * is smaller); the test fails if any document loses its 2x headroom.
+ *
+ * <h2>{@code getAllPackets} (Q-V1-07, INT1)</h2>
+ * Every other field's cost bounds field-<i>selection</i> breadth, not
+ * result-<i>set</i> size, which is fine for every other query: they return one
+ * packet, a fixed small list (taxonomy), or a paginated page whose {@code size}
+ * argument a future WP can cost directly. The deprecated, unpaginated
+ * {@code getAllPackets} (kept only for {@code listPackets}'s not-yet-migrated
+ * callers, per its own deprecation notice) returns every visible packet's full
+ * tree at once, so a selection costed like any other field could be aliased
+ * (e.g. three {@code a: getAllPackets { ... } b: getAllPackets { ... } c: ...})
+ * to pull hundreds of full packet trees a minute for the same field-selection
+ * price as one. {@link #GET_ALL_PACKETS_LIST_WEIGHT} multiplies just that
+ * field's child complexity by an assumed result-size factor, so even a single
+ * full-tree call is rejected, while the small selections the surviving real
+ * callers (integration tests exercising visibility/redaction, not abuse) send
+ * stay comfortably under the cap; see {@code GraphQlDepthComplexityTest}.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(GraphQlLimitsProperties.class)
 public class GraphQlLimitsConfig {
 
-    /** One point per field plus its children; introspection fields cost nothing. */
-    public static final FieldComplexityCalculator COMPLEXITY_CALCULATOR = (environment, childComplexity) ->
-            environment.getField().getName().startsWith("__") ? 0 : 1 + childComplexity;
+    /**
+     * Q-V1-07: an assumed result-size factor for the deprecated, unpaginated
+     * {@code getAllPackets} (see the class Javadoc); chosen so a single
+     * full-packet-tree selection is rejected outright while every surviving
+     * small real selection stays well under the cap.
+     */
+    public static final int GET_ALL_PACKETS_LIST_WEIGHT = 10;
+
+    /**
+     * One point per field plus its children; introspection fields cost
+     * nothing; {@code getAllPackets} additionally weights its children by
+     * {@link #GET_ALL_PACKETS_LIST_WEIGHT} (Q-V1-07).
+     */
+    public static final FieldComplexityCalculator COMPLEXITY_CALCULATOR = (environment, childComplexity) -> {
+        String name = environment.getField().getName();
+        if (name.startsWith("__")) {
+            return 0;
+        }
+        if (name.equals("getAllPackets")) {
+            return 1 + GET_ALL_PACKETS_LIST_WEIGHT * childComplexity;
+        }
+        return 1 + childComplexity;
+    };
 
     @Bean
     public RateLimitingInstrumentation rateLimitingInstrumentation(RateLimitService rateLimitService,

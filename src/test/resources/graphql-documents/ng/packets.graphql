@@ -1,0 +1,18 @@
+query ($filter: PacketFilter, $page: Int, $size: Int) {
+  packets(filter: $filter, page: $page, size: $size) {
+    items {
+      id
+      name
+      difficulty { id name }
+      owner { id name }
+      visibility
+      version
+      tossupCount
+      bonusCount
+      playable
+    }
+    total
+    page
+    size
+  }
+}

@@ -1,0 +1,3 @@
+mutation ($id: ID!, $name: String) {
+  clonePacket(id: $id, name: $name) { id }
+}

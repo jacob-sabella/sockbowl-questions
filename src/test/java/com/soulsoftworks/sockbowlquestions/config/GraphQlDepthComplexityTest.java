@@ -105,6 +105,8 @@ class GraphQlDepthComplexityTest {
         assertThat(properties.getDefaultQueryPolicy()).isEqualTo("graphql-read");
         assertThat(properties.getDefaultMutationPolicy()).isEqualTo("graphql-write");
         assertThat(properties.getFields()).containsEntry("generateAndAddTossup", "graphql-write");
+        assertThat(properties.getFields()).containsEntry("importPacket", "import");
+        assertThat(properties.getFields()).containsEntry("clonePacket", "graphql-write");
     }
 
     /* ---------------------------------- depth --------------------------------- */
@@ -141,7 +143,11 @@ class GraphQlDepthComplexityTest {
     @TestFactory
     Stream<DynamicTest> everyClientDocumentIsAcceptedWithTwiceTheHeadroom() throws IOException {
         List<ClientDocument> documents = clientDocuments();
-        assertThat(documents).as("ng + game documents").hasSizeGreaterThanOrEqualTo(29);
+        // INT1 adds M3's documents (packets, exportPacket, importPacket, clonePacket,
+        // the taxonomy rename/merge mutations); the stale full-tree ng/getAllPackets
+        // fixture is gone (Q-V1-07: no live caller sends it any more, and it is now
+        // deliberately rejected, see anAllPacketsStyleQueryOverTheCapIsRejected below).
+        assertThat(documents).as("ng + game documents").hasSizeGreaterThanOrEqualTo(38);
         return documents.stream().map(doc -> DynamicTest.dynamicTest(doc.name(), () -> {
             Map<String, Object> variables = variablesFor(doc.text());
             Measure measure = measure(doc.text(), variables);
@@ -172,23 +178,57 @@ class GraphQlDepthComplexityTest {
                 .isEqualTo(properties.getMaxComplexity());
     }
 
+    /**
+     * The full-tree selection {@code sockbowl-questions.service.ts}'s deprecated
+     * {@code getAllPackets()} used to send live (no caller does any more, Q-V1-07),
+     * kept here inline rather than as a {@code graphql-documents} fixture so it is
+     * never picked up by {@link #everyClientDocumentIsAcceptedWithTwiceTheHeadroom}.
+     */
+    private static final String ALL_PACKETS_FULL_TREE_SELECTION = """
+            {
+              id
+              name
+              difficulty { id name }
+              owner { id name }
+              bonuses {
+                order
+                bonus {
+                  id preamble
+                  subcategory { id name category { id name } }
+                  bonusParts { order bonusPart { id question answer } }
+                }
+              }
+              tossups {
+                order
+                tossup { id question answer subcategory { id name category { id name } } }
+              }
+            }
+            """;
+
     @Test
-    void anAllPacketsStyleQueryOverTheCapIsRejected() throws IOException {
-        String allPackets = clientDocuments().stream()
-                .filter(d -> d.name().equals("ng/getAllPackets")).findFirst().orElseThrow().text();
-        String selection = allPackets.substring(allPackets.indexOf("getAllPackets {") + "getAllPackets".length(),
-                allPackets.lastIndexOf('}'));
-        String threeTimes = "query { a: getAllPackets" + selection + " b: getAllPackets" + selection
-                + " c: getAllPackets" + selection + " }";
-        int complexity = measure(threeTimes, null).complexity();
+    void anAllPacketsStyleQueryOverTheCapIsRejected() {
+        // Q-V1-07: getAllPackets returns every visible packet's full tree at once
+        // (no pagination), so unlike every other field, its complexity is weighted
+        // by an assumed result-size factor (GraphQlLimitsConfig#GET_ALL_PACKETS_LIST_WEIGHT).
+        // A single full-tree call is now rejected outright, not just three aliased ones.
+        String once = "query { getAllPackets " + ALL_PACKETS_FULL_TREE_SELECTION + " }";
+        int complexity = measure(once, null).complexity();
         assertThat(complexity).isGreaterThan(properties.getMaxComplexity());
 
-        assertAborted(limited.execute(threeTimes),
+        assertAborted(limited.execute(once),
                 "maximum query complexity exceeded " + complexity + " > " + properties.getMaxComplexity());
+    }
 
-        String twice = "query { a: getAllPackets" + selection + " b: getAllPackets" + selection + " }";
-        assertThat(measure(twice, null).complexity()).isLessThanOrEqualTo(properties.getMaxComplexity());
-        assertNotAborted(limited.execute(twice));
+    @Test
+    void aSmallGetAllPacketsSelectionLikeTheSurvivingRealCallersIsStillAccepted() {
+        // The handful of real getAllPackets callers left (integration tests
+        // exercising visibility/redaction, not the abuse case above) select only
+        // a few scalar/small-object fields, e.g. GraphQlReadAuthorizationIT's
+        // "id visibility answersRedacted tossups { tossup { answer } }".
+        String small = "query { getAllPackets { id visibility answersRedacted "
+                + "tossups { tossup { answer } } } }";
+        assertThat(measure(small, null).complexity()).isLessThanOrEqualTo(properties.getMaxComplexity());
+        assertNotAborted(limited.execute(small));
     }
 
     @Test

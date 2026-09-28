@@ -10,6 +10,7 @@ import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -34,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PacketVersionCypherIT extends Neo4jContainerTestBase {
 
     private static final String PREFIX = "pkt-ver-";
+    private static final String AUDITOR = "tester";
 
     @Autowired private PacketRepository repository;
     @Autowired private Neo4jClient neo4j;
@@ -70,8 +72,8 @@ class PacketVersionCypherIT extends Neo4jContainerTestBase {
         assertThat(storedVersion("pkt-ver-a")).isNull();
         assertThat(repository.currentVersion("pkt-ver-a")).contains(0L);
 
-        assertThat(repository.bumpVersion("pkt-ver-a", null)).isEqualTo(1L);
-        assertThat(repository.bumpVersion("pkt-ver-a", 1L)).isEqualTo(2L);
+        assertThat(repository.bumpVersion("pkt-ver-a", null, AUDITOR, Instant.now().toString())).isEqualTo(1L);
+        assertThat(repository.bumpVersion("pkt-ver-a", 1L, AUDITOR, Instant.now().toString())).isEqualTo(2L);
 
         assertThat(storedVersion("pkt-ver-a")).isEqualTo(2L);
         assertThat(repository.currentVersion("pkt-ver-a")).contains(2L);
@@ -79,15 +81,15 @@ class PacketVersionCypherIT extends Neo4jContainerTestBase {
 
     @Test
     void expectedZeroMatchesALegacyNodeWithoutVersion() {
-        assertThat(repository.bumpVersion("pkt-ver-a", 0L)).isEqualTo(1L);
+        assertThat(repository.bumpVersion("pkt-ver-a", 0L, AUDITOR, Instant.now().toString())).isEqualTo(1L);
     }
 
     @Test
     void mismatchReturnsNullAndWritesNothing() {
-        repository.bumpVersion("pkt-ver-a", null);
+        repository.bumpVersion("pkt-ver-a", null, AUDITOR, Instant.now().toString());
 
-        assertThat(repository.bumpVersion("pkt-ver-a", 0L)).isNull();
-        assertThat(repository.bumpVersion("pkt-ver-a", 7L)).isNull();
+        assertThat(repository.bumpVersion("pkt-ver-a", 0L, AUDITOR, Instant.now().toString())).isNull();
+        assertThat(repository.bumpVersion("pkt-ver-a", 7L, AUDITOR, Instant.now().toString())).isNull();
 
         assertThat(storedVersion("pkt-ver-a")).isEqualTo(1L);
         Long lockLeftovers = neo4j.query("MATCH (p:Packet {id: 'pkt-ver-a'}) RETURN count(p.versionLock)")
@@ -97,7 +99,7 @@ class PacketVersionCypherIT extends Neo4jContainerTestBase {
 
     @Test
     void missingPacketReturnsNullAndHasNoCurrentVersion() {
-        assertThat(repository.bumpVersion("pkt-ver-missing", null)).isNull();
+        assertThat(repository.bumpVersion("pkt-ver-missing", null, AUDITOR, Instant.now().toString())).isNull();
         assertThat(repository.currentVersion("pkt-ver-missing")).isEmpty();
     }
 
@@ -107,14 +109,14 @@ class PacketVersionCypherIT extends Neo4jContainerTestBase {
         CountDownLatch releaseFirst = new CountDownLatch(1);
 
         Future<Long> first = pool.submit(() -> tx.execute(status -> {
-            Long v = repository.bumpVersion("pkt-ver-a", 0L);
+            Long v = repository.bumpVersion("pkt-ver-a", 0L, AUDITOR, Instant.now().toString());
             firstBumped.countDown();
             await(releaseFirst);
             return v;
         }));
         assertThat(firstBumped.await(30, TimeUnit.SECONDS)).isTrue();
 
-        Future<Long> second = pool.submit(() -> tx.execute(status -> repository.bumpVersion("pkt-ver-a", 0L)));
+        Future<Long> second = pool.submit(() -> tx.execute(status -> repository.bumpVersion("pkt-ver-a", 0L, AUDITOR, Instant.now().toString())));
 
         // While the first transaction holds the packet's write lock, the second one blocks.
         assertThatThrownBy(() -> second.get(750, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
@@ -134,7 +136,7 @@ class PacketVersionCypherIT extends Neo4jContainerTestBase {
         for (int i = 0; i < threads; i++) {
             results.add(pool.submit(() -> {
                 start.await(30, TimeUnit.SECONDS);
-                return tx.execute(status -> repository.bumpVersion("pkt-ver-a", 0L));
+                return tx.execute(status -> repository.bumpVersion("pkt-ver-a", 0L, AUDITOR, Instant.now().toString()));
             }));
         }
         List<Long> outcomes = new ArrayList<>();
@@ -156,7 +158,7 @@ class PacketVersionCypherIT extends Neo4jContainerTestBase {
             results.add(pool.submit(() -> {
                 start.await(30, TimeUnit.SECONDS);
                 for (int j = 0; j < perThread; j++) {
-                    tx.execute(status -> repository.bumpVersion("pkt-ver-a", null));
+                    tx.execute(status -> repository.bumpVersion("pkt-ver-a", null, AUDITOR, Instant.now().toString()));
                 }
                 return null;
             }));

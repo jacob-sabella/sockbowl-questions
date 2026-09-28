@@ -141,7 +141,21 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * transactions both see version N and both write N+1 (a lost update). Once the lock is
      * held, the read sees the latest committed version.
      *
+     * <p>Also stamps {@code lastModifiedBy}/{@code lastModifiedAt} (D13, M4-PV-01, INT1)
+     * on a successful bump. This is the only touch a node-level content mutation
+     * (a tossup/bonus/bonus-part add, update, remove or reorder) makes to the
+     * <em>packet</em> itself: those mutations save the child node through SDN (which
+     * stamps the child's own audit fields), but never re-save the packet, so without
+     * this the packet's {@code lastModifiedBy}/{@code lastModifiedAt} would go stale
+     * on every content edit that isn't a direct packet-level mutation.
+     *
+     * @param id       the packet to bump
      * @param expected the version the caller last saw, or null to skip the check
+     * @param auditor  the resolved auditor value (see
+     *                 {@link com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware}) to
+     *                 stamp as {@code lastModifiedBy}
+     * @param nowIso   an ISO-8601 instant ({@code Instant.now().toString()}) to stamp as
+     *                 {@code lastModifiedAt}, parsed with Cypher's {@code datetime()}
      * @return the new version, or null when the packet doesn't exist or {@code expected}
      *         doesn't match (tell the two apart with {@link #currentVersion})
      */
@@ -151,10 +165,13 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
             REMOVE p.versionLock
             WITH p
             WHERE $expected IS NULL OR coalesce(p.version, 0) = $expected
-            SET p.version = coalesce(p.version, 0) + 1
+            SET p.version = coalesce(p.version, 0) + 1,
+                p.lastModifiedBy = $auditor,
+                p.lastModifiedAt = datetime($nowIso)
             RETURN p.version
             """)
-    Long bumpVersion(@Param("id") String id, @Param("expected") Long expected);
+    Long bumpVersion(@Param("id") String id, @Param("expected") Long expected,
+                     @Param("auditor") String auditor, @Param("nowIso") String nowIso);
 
     /** The packet's stored version (null reads as 0); empty when the packet doesn't exist. */
     @Query("MATCH (p:Packet {id: $id}) RETURN coalesce(p.version, 0)")

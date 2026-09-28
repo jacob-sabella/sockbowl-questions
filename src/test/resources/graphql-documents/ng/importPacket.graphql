@@ -1,0 +1,15 @@
+mutation ($input: ImportPacketInput!) {
+  importPacket(input: $input) {
+    committed
+    packet { id }
+    parsed {
+      suggestedName
+      tossups { number line question answer categoryTag subcategory { id name category { id name } } }
+      bonuses {
+        number line preamble categoryTag subcategory { id name category { id name } }
+        parts { line question answer }
+      }
+    }
+    issues { severity line message }
+  }
+}

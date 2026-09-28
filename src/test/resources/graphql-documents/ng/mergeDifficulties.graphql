@@ -1,0 +1,3 @@
+mutation ($sourceId: ID!, $targetId: ID!) {
+  mergeDifficulties(sourceId: $sourceId, targetId: $targetId) { id name }
+}

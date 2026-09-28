@@ -79,13 +79,28 @@ public interface PacketImportRepository extends Neo4jRepository<Subcategory, Str
      *                (each part: question, answer, order)
      * @param createdVia node-only provenance (e.g. {@code "TEXT_IMPORT"}, {@code "CLONED"});
      *                    not mapped on {@link Packet} (M4 owns the mapped provenance fields)
+     * @param source     the {@link com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource}
+     *                    name (D13, M4-PV-01, INT1) to stamp on the packet and every node it creates
+     *                    ({@code TEXT_IMPORT} for {@code importPacket}, {@code CLONED} for
+     *                    {@code clonePacket}); {@code aiModel} is intentionally left unset (null).
+     * @param auditor    the resolved auditor value (D13, M4-PV-01, INT1) to stamp as
+     *                    {@code createdBy}/{@code lastModifiedBy} on every node this creates
+     *                    (see {@link com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware}).
+     *                    This raw-Cypher path bypasses SDN's save pipeline (no
+     *                    {@code @EnableNeo4jAuditing} callback runs), so the caller resolves and
+     *                    passes it explicitly, the same as {@link PacketRepository#batchCreatePacket}.
+     * @param nowIso     an ISO-8601 instant (as produced by {@code Instant.now().toString()}) to
+     *                    stamp as {@code createdAt}/{@code lastModifiedAt}, parsed with Cypher's
+     *                    {@code datetime()} so it's stored as a native temporal value.
      * @return the new packet's id
      */
     @Query("""
             OPTIONAL MATCH (d:Difficulty {id: $difficultyId})
             CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId,
                               ownerDisplayName: $ownerDisplayName, visibility: $visibility,
-                              version: 0, createdVia: $createdVia})
+                              version: 0, createdVia: $createdVia, source: $source,
+                              createdBy: $auditor, createdAt: datetime($nowIso),
+                              lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
             FOREACH (_ IN CASE WHEN d IS NULL THEN [] ELSE [1] END |
               CREATE (p)-[:DIFFICULTY_LEVEL]->(d)
             )
@@ -93,7 +108,9 @@ public interface PacketImportRepository extends Neo4jRepository<Subcategory, Str
             CALL (p) {
               UNWIND $tossups AS t
                 OPTIONAL MATCH (sub:Subcategory {id: t.subcategoryId})
-                CREATE (tu:Tossup {id: randomUUID(), question: t.question, answer: t.answer})
+                CREATE (tu:Tossup {id: randomUUID(), question: t.question, answer: t.answer,
+                                   source: $source, createdBy: $auditor, createdAt: datetime($nowIso),
+                                   lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
                 FOREACH (_ IN CASE WHEN sub IS NULL THEN [] ELSE [1] END |
                   CREATE (tu)-[:SUBCATEGORY_IS]->(sub)
                 )
@@ -103,14 +120,18 @@ public interface PacketImportRepository extends Neo4jRepository<Subcategory, Str
             CALL (p) {
               UNWIND $bonuses AS b
                 OPTIONAL MATCH (sub:Subcategory {id: b.subcategoryId})
-                CREATE (bo:Bonus {id: randomUUID(), preamble: b.preamble})
+                CREATE (bo:Bonus {id: randomUUID(), preamble: b.preamble,
+                                  source: $source, createdBy: $auditor, createdAt: datetime($nowIso),
+                                  lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
                 FOREACH (_ IN CASE WHEN sub IS NULL THEN [] ELSE [1] END |
                   CREATE (sub)-[:SUBCATEGORY_IS]->(bo)
                 )
                 CREATE (p)-[:CONTAINS_BONUS {order: b.order}]->(bo)
                 WITH bo, b
                 UNWIND b.parts AS part
-                  CREATE (bp:BonusPart {id: randomUUID(), question: part.question, answer: part.answer})
+                  CREATE (bp:BonusPart {id: randomUUID(), question: part.question, answer: part.answer,
+                                        source: $source, createdBy: $auditor, createdAt: datetime($nowIso),
+                                        lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
                   CREATE (bo)-[:HAS_PART {order: part.order}]->(bp)
             }
             RETURN p.id AS id
@@ -122,5 +143,8 @@ public interface PacketImportRepository extends Neo4jRepository<Subcategory, Str
                                 @Param("ownerId") String ownerId,
                                 @Param("ownerDisplayName") String ownerDisplayName,
                                 @Param("visibility") String visibility,
-                                @Param("createdVia") String createdVia);
+                                @Param("createdVia") String createdVia,
+                                @Param("source") String source,
+                                @Param("auditor") String auditor,
+                                @Param("nowIso") String nowIso);
 }

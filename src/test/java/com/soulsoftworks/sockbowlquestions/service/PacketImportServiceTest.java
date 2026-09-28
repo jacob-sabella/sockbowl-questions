@@ -7,10 +7,12 @@ import com.soulsoftworks.sockbowlquestions.exception.ValidationFailedException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
 import com.soulsoftworks.sockbowlquestions.packetio.ParseIssue;
+import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.repository.PacketImportRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.security.PacketReadPolicy;
+import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,12 +24,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +42,8 @@ class PacketImportServiceTest {
     @Mock private PacketImportRepository packetImportRepository;
     @Mock private PacketRepository packetRepository;
     @Mock private PacketReadPolicy packetReadPolicy;
+    @Mock private ContentQuotaGuard contentQuotaGuard;
+    @Mock private SecurityAuditorAware securityAuditorAware;
 
     private PacketImportService service;
     private final AuthenticatedUser author = new AuthenticatedUser("author-sub", "author-name", Set.of(), false);
@@ -50,10 +56,19 @@ class PacketImportServiceTest {
             """;
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp() {
         PacketLimitsProperties limits = new PacketLimitsProperties();
         service = new PacketImportService(packetImportRepository, packetRepository, packetReadPolicy,
-                limits, new PacketValidator(limits));
+                limits, new PacketValidator(limits), contentQuotaGuard, securityAuditorAware);
+        // The quota guard is a mock, not the real serialized-slot logic (that's covered by
+        // ContentQuotaITSupport-based ITs), so it just needs to run the create it's given.
+        lenient().when(contentQuotaGuard.withPacketsOwnedSlot(anyString(), any()))
+                .thenAnswer(invocation -> ((Supplier<Object>) invocation.getArgument(1)).get());
+        lenient().when(contentQuotaGuard.chargeImport(anyString())).thenReturn(ContentQuotaGuard.ImportCharge.NONE);
+        // Real callers never see null here (SecurityAuditorAware#resolve falls back to
+        // "anonymous"); a mock with no stub would return null, which anyString() rejects.
+        lenient().when(securityAuditorAware.currentAuditorValue()).thenReturn("test-auditor");
     }
 
     @Test
@@ -66,7 +81,7 @@ class PacketImportServiceTest {
         assertThat(result.packet()).isNull();
         assertThat(result.parsed().tossups()).hasSize(1);
         verify(packetImportRepository, never()).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -78,7 +93,7 @@ class PacketImportServiceTest {
 
         assertThat(result.committed()).isFalse();
         verify(packetImportRepository, never()).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -99,10 +114,10 @@ class PacketImportServiceTest {
         assertThat(blockedResult.packet()).isNull();
         assertThat(blockedResult.issues()).anyMatch(ParseIssue::isError);
         verify(packetImportRepository, never()).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
 
         when(packetImportRepository.createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString()))
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn("new-packet-id");
         when(packetRepository.findById("new-packet-id")).thenReturn(Optional.of(Packet.builder().id("new-packet-id").build()));
 
@@ -112,7 +127,7 @@ class PacketImportServiceTest {
         assertThat(allowedResult.committed()).isTrue();
         assertThat(allowedResult.packet()).isNotNull();
         verify(packetImportRepository).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -135,7 +150,7 @@ class PacketImportServiceTest {
         assertThat(result.committed()).isFalse();
         assertThat(result.packet()).isNull();
         verify(packetImportRepository, never()).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -179,7 +194,7 @@ class PacketImportServiceTest {
     @SuppressWarnings("unchecked")
     void ownerIsSetFromTheAuthenticatedUserOnCommit() {
         when(packetImportRepository.createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString()))
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn("new-packet-id");
         when(packetRepository.findById("new-packet-id"))
                 .thenReturn(Optional.of(Packet.builder().id("new-packet-id").build()));
@@ -192,7 +207,7 @@ class PacketImportServiceTest {
         ArgumentCaptor<String> ownerNameCaptor = ArgumentCaptor.forClass(String.class);
         verify(packetImportRepository).createImportedPacket(
                 eq("My Packet"), any(), any(), any(), ownerIdCaptor.capture(), ownerNameCaptor.capture(),
-                eq("DRAFT"), eq(PacketImportService.CREATED_VIA_IMPORT));
+                eq("DRAFT"), eq(PacketImportService.CREATED_VIA_IMPORT), anyString(), anyString(), anyString());
         assertThat(ownerIdCaptor.getValue()).isEqualTo("author-sub");
         assertThat(ownerNameCaptor.getValue()).isEqualTo("author-name");
     }
@@ -201,7 +216,7 @@ class PacketImportServiceTest {
     @SuppressWarnings("unchecked")
     void commitBuildsOrderedRowsFromTheResolvedTossupsAndBonuses() {
         when(packetImportRepository.createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString()))
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn("new-packet-id");
         when(packetRepository.findById("new-packet-id"))
                 .thenReturn(Optional.of(Packet.builder().id("new-packet-id").build()));
@@ -232,7 +247,7 @@ class PacketImportServiceTest {
         ArgumentCaptor<List<Map<String, Object>>> bonusRowsCaptor = ArgumentCaptor.forClass(List.class);
         verify(packetImportRepository).createImportedPacket(
                 anyString(), any(), tossupRowsCaptor.capture(), bonusRowsCaptor.capture(),
-                anyString(), any(), anyString(), anyString());
+                anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
 
         List<Map<String, Object>> tossupRows = tossupRowsCaptor.getValue();
         assertThat(tossupRows).hasSize(2);
@@ -257,7 +272,7 @@ class PacketImportServiceTest {
                 .isInstanceOf(ValidationFailedException.class)
                 .satisfies(e -> assertThat(((ValidationFailedException) e).getField()).isEqualTo(PacketValidator.FIELD_NAME));
         verify(packetImportRepository, never()).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -268,7 +283,7 @@ class PacketImportServiceTest {
         service.importPacket(new ImportPacketInput(ONE_TOSSUP, "  " + name + "  ", null, false, false), author);
 
         verify(packetImportRepository).createImportedPacket(
-                eq(name), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                eq(name), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -282,7 +297,7 @@ class PacketImportServiceTest {
         ImportPacketResultDto committed = service.importPacket(new ImportPacketInput(text, null, null, false, false), author);
         assertThat(committed.committed()).isTrue();
         verify(packetImportRepository).createImportedPacket(
-                eq("P".repeat(200)), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                eq("P".repeat(200)), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -297,7 +312,7 @@ class PacketImportServiceTest {
 
         ArgumentCaptor<String> name = ArgumentCaptor.forClass(String.class);
         verify(packetImportRepository).createImportedPacket(
-                name.capture(), any(), any(), any(), anyString(), any(), anyString(), eq(PacketImportService.CREATED_VIA_CLONE));
+                name.capture(), any(), any(), any(), anyString(), any(), anyString(), eq(PacketImportService.CREATED_VIA_CLONE), anyString(), anyString(), anyString());
         assertThat(name.getValue()).hasSize(200).endsWith(" (copy)").startsWith("S".repeat(193));
     }
 
@@ -311,12 +326,12 @@ class PacketImportServiceTest {
         assertThatThrownBy(() -> service.clonePacket("src", "z".repeat(201), author))
                 .isInstanceOf(ValidationFailedException.class);
         verify(packetImportRepository, never()).createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     private void stubCreate() {
         when(packetImportRepository.createImportedPacket(
-                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString()))
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn("new-packet-id");
         when(packetRepository.findById("new-packet-id"))
                 .thenReturn(Optional.of(Packet.builder().id("new-packet-id").build()));
