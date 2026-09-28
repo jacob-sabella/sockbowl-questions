@@ -19,10 +19,12 @@ import java.util.List;
  */
 public class PlaintextPacketFormatter {
 
+    private static final java.util.regex.Pattern WHITESPACE_RUN = java.util.regex.Pattern.compile("\\s+");
+
     public String format(Packet packet) {
         StringBuilder sb = new StringBuilder();
         String name = packet.getName();
-        sb.append(name == null ? "" : name).append("\n\n");
+        sb.append(field(name)).append("\n\n");
 
         List<ContainsTossup> tossups = packet.getTossups() == null ? List.of()
                 : packet.getTossups().stream()
@@ -40,8 +42,8 @@ public class PlaintextPacketFormatter {
             if (t == null) {
                 continue;
             }
-            sb.append(number++).append(". ").append(nullToEmpty(t.getQuestion())).append('\n');
-            sb.append("ANSWER: ").append(nullToEmpty(t.getAnswer()));
+            sb.append(number++).append(". ").append(field(t.getQuestion())).append('\n');
+            sb.append("ANSWER: ").append(field(t.getAnswer()));
             appendTag(sb, t.getSubcategory());
             sb.append("\n\n");
         }
@@ -53,7 +55,7 @@ public class PlaintextPacketFormatter {
             if (b == null) {
                 continue;
             }
-            sb.append(number++).append(". ").append(nullToEmpty(b.getPreamble())).append('\n');
+            sb.append(number++).append(". ").append(field(b.getPreamble())).append('\n');
             List<HasBonusPart> parts = b.getBonusParts() == null ? List.of()
                     : b.getBonusParts().stream()
                             .sorted(Comparator.comparing(r -> orderOf(r.getOrder())))
@@ -63,8 +65,8 @@ public class PlaintextPacketFormatter {
                 if (part == null) {
                     continue;
                 }
-                sb.append("[10] ").append(nullToEmpty(part.getQuestion())).append('\n');
-                sb.append("ANSWER: ").append(nullToEmpty(part.getAnswer()));
+                sb.append("[10] ").append(field(part.getQuestion())).append('\n');
+                sb.append("ANSWER: ").append(field(part.getAnswer()));
                 if (i == parts.size() - 1) {
                     appendTag(sb, b.getSubcategory());
                 }
@@ -83,13 +85,20 @@ public class PlaintextPacketFormatter {
         String categoryName = subcategory.getCategory() != null ? subcategory.getCategory().getName() : null;
         sb.append(" <");
         if (categoryName != null && !categoryName.isBlank()) {
-            sb.append(categoryName).append(" - ");
+            sb.append(field(categoryName)).append(" - ");
         }
-        sb.append(subcategory.getName()).append('>');
+        sb.append(field(subcategory.getName())).append('>');
     }
 
-    private static String nullToEmpty(String s) {
-        return s == null ? "" : s;
+    /**
+     * One field on one line: every run of whitespace (including embedded newlines, which a
+     * builder textarea can store) collapses to a single space and the ends are trimmed. The
+     * parser joins wrapped lines with single spaces anyway, so this is the text it reads
+     * back, and a field line that looks like an item start, ANSWER or header can no longer
+     * split the item on re-import (Q-M3V1-04).
+     */
+    static String field(String s) {
+        return s == null ? "" : WHITESPACE_RUN.matcher(s).replaceAll(" ").trim();
     }
 
     private static int orderOf(Integer order) {
