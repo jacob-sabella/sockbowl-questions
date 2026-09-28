@@ -238,6 +238,40 @@ class RequestGuardFilterTest {
     }
 
     @Test
+    void aDeferredPathSkipsOnlyTheSubjectBanStepAndNothingElse() throws Exception {
+        when(subjectBanChecker.findActiveBan("kc-bad"))
+                .thenReturn(Optional.of(new SubjectBanChecker.SubjectBan("spam", null)));
+        authenticate("kc-bad", "sockbowl-ng", "player");
+
+        // Without a deferral the GraphQL path is a plain 403 like any other path.
+        MockHttpServletResponse before = new MockHttpServletResponse();
+        filter.doFilter(request("POST", "/graphql"), before, mock(FilterChain.class));
+        assertThat(before.getStatus()).isEqualTo(403);
+
+        filter.deferSubjectBanChecks(List.of("/graphql"));
+        assertThat(filter.isSubjectBanDeferred("/graphql")).isTrue();
+        assertThat(filter.isSubjectBanDeferred("/api/qbreader/count")).isFalse();
+
+        // Deferred: passed on (the GraphQL interceptor answers BANNED), still charged and IP-checked.
+        MockFilterChain chain = run(request("POST", "/graphql"), new MockHttpServletResponse());
+        assertThat(chain.getRequest()).isNotNull();
+        verify(rateLimitService).tryConsume(eq("default"), any());
+        verify(ipBanChecker, org.mockito.Mockito.times(2)).findActiveBan("192.0.2.10");
+
+        // Every other path is still rejected here.
+        MockHttpServletResponse rest = new MockHttpServletResponse();
+        filter.doFilter(request("GET", "/api/v1/auth/status"), rest, mock(FilterChain.class));
+        assertThat(rest.getStatus()).isEqualTo(403);
+
+        // An IP ban is never deferred.
+        when(ipBanChecker.findActiveBan("192.0.2.10")).thenReturn(Optional.of(Instant.now().plusSeconds(60)));
+        MockHttpServletResponse ipBanned = new MockHttpServletResponse();
+        filter.doFilter(request("POST", "/graphql"), ipBanned, mock(FilterChain.class));
+        assertThat(ipBanned.getStatus()).isEqualTo(403);
+        assertThat(ipBanned.getContentAsString()).contains("ip_banned");
+    }
+
+    @Test
     void guestsAreNeverSubjectBanChecked() throws Exception {
         run(request("GET", "/api/v1/auth/status"), new MockHttpServletResponse());
         verify(subjectBanChecker, never()).findActiveBan(any());

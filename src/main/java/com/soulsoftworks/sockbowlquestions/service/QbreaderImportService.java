@@ -4,6 +4,7 @@ import com.soulsoftworks.sockbowlquestions.client.dto.QbRandomFilter;
 import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
+import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.repository.BankRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
@@ -45,12 +46,14 @@ public class QbreaderImportService {
     private final BankRepository bankRepository;
     private final PacketRepository packetRepository;
     private final SecurityAuditorAware securityAuditorAware;
+    private final ContentQuotaGuard contentQuotaGuard;
 
     public QbreaderImportService(BankRepository bankRepository, PacketRepository packetRepository,
-                                 SecurityAuditorAware securityAuditorAware) {
+                                 SecurityAuditorAware securityAuditorAware, ContentQuotaGuard contentQuotaGuard) {
         this.bankRepository = bankRepository;
         this.packetRepository = packetRepository;
         this.securityAuditorAware = securityAuditorAware;
+        this.contentQuotaGuard = contentQuotaGuard;
     }
 
     /**
@@ -83,6 +86,27 @@ public class QbreaderImportService {
                                             String ownerId, String ownerDisplayName,
                                             PacketVisibility visibility) {
         PacketVisibility effectiveVisibility = visibility == null ? PacketVisibility.defaultForNewPackets() : visibility;
+        // M4-UQ-01: an owned import counts toward packets-owned and today's imports
+        // (refunded if it fails). A game-only EPHEMERAL import has no owner (D15) and
+        // is bounded by the import/import-ip rate policies instead.
+        ContentQuotaGuard.ImportCharge charge = ContentQuotaGuard.ImportCharge.NONE;
+        if (ownerId != null && !effectiveVisibility.isGameOnly()) {
+            contentQuotaGuard.checkPacketsOwned(ownerId);
+            charge = contentQuotaGuard.chargeImport(ownerId);
+        }
+        try {
+            return createFromBank(filter, tossupCount, bonusCount, name, excludeRemoteIds, balanced,
+                    ownerId, ownerDisplayName, effectiveVisibility);
+        } catch (RuntimeException e) {
+            charge.refund();
+            throw e;
+        }
+    }
+
+    private ImportOutcome createFromBank(QbRandomFilter filter, int tossupCount, int bonusCount,
+                                         String name, Collection<String> excludeRemoteIds, boolean balanced,
+                                         String ownerId, String ownerDisplayName,
+                                         PacketVisibility effectiveVisibility) {
         List<String> exclude = excludeRemoteIds == null
                 ? List.of()
                 : new ArrayList<>(new LinkedHashSet<>(excludeRemoteIds));

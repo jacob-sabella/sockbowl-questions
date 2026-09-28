@@ -7,9 +7,24 @@
 # shipped key from every test (sockbowl-game hit exactly that in M4).
 #
 # M4: the limiter is off for the suite (no Redis is needed). The request guard
-# filter still runs its ban checks (no-ops without the Q4 checkers). A test that
+# filter still runs its ban checks (failing open: no Redis is reachable). A test that
 # exercises limits turns it back on (sockbowl.ratelimit.enabled=true) and points
 # spring.data.redis.* at a Redis Testcontainer; the shipped policies stay visible.
 sockbowl:
   ratelimit:
     enabled: false
+  # WP-Q4: quotas are off for the suite too (content quotas and the AI quota);
+  # the quota ITs turn them back on against their own Redis Testcontainer.
+  quota:
+    enabled: false
+
+# WP-Q4: every auth-on test now reads bans from Redis (fail open). Point the
+# suite at an address where nothing listens, so a developer's Redis or a
+# network_mode: host compose stack on localhost:6379 can never leak state
+# (bans, quota counters, overrides) into unrelated tests. Tests that need Redis
+# override this with a Testcontainer via @DynamicPropertySource.
+spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 1

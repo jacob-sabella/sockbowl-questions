@@ -22,6 +22,7 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
+import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.repository.BonusPartRepository;
 import com.soulsoftworks.sockbowlquestions.repository.BonusRepository;
 import com.soulsoftworks.sockbowlquestions.repository.CategoryRepository;
@@ -60,6 +61,7 @@ public class PacketAuthoringService {
     private final SubcategoryRepository subcategoryRepository;
     private final QuestionGenerationService questionGenerationService;
     private final AiSecurityProperties aiSecurityProperties;
+    private final ContentQuotaGuard contentQuotaGuard;
 
     public PacketAuthoringService(PacketRepository packetRepository,
                                   TossupRepository tossupRepository,
@@ -69,7 +71,8 @@ public class PacketAuthoringService {
                                   CategoryRepository categoryRepository,
                                   SubcategoryRepository subcategoryRepository,
                                   QuestionGenerationService questionGenerationService,
-                                  AiSecurityProperties aiSecurityProperties) {
+                                  AiSecurityProperties aiSecurityProperties,
+                                  ContentQuotaGuard contentQuotaGuard) {
         this.packetRepository = packetRepository;
         this.tossupRepository = tossupRepository;
         this.bonusRepository = bonusRepository;
@@ -79,6 +82,7 @@ public class PacketAuthoringService {
         this.subcategoryRepository = subcategoryRepository;
         this.questionGenerationService = questionGenerationService;
         this.aiSecurityProperties = aiSecurityProperties;
+        this.contentQuotaGuard = contentQuotaGuard;
     }
 
     /* ------------------------------- Packet -------------------------------- */
@@ -86,6 +90,8 @@ public class PacketAuthoringService {
     @Transactional
     public Packet createPacket(CreatePacketInput input, String ownerId, String ownerDisplayName) {
         String name = requireText(input.name(), "Packet name");
+        // M4-UQ-01: packets-owned quota (D10); recovers when the owner deletes a packet.
+        contentQuotaGuard.checkPacketsOwned(ownerId);
         Packet.PacketBuilder builder = Packet.builder().name(name)
                 .ownerId(ownerId)
                 .ownerDisplayName(ownerDisplayName)

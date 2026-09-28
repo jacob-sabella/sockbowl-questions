@@ -4,6 +4,7 @@ package com.soulsoftworks.sockbowlquestions.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.soulsoftworks.sockbowlquestions.ai.AiGenerationGuard;
 import com.soulsoftworks.sockbowlquestions.ai.AiPermit;
+import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
@@ -34,14 +35,17 @@ public class QuestionGenerationService {
     private final String strategyName;
     private final AiGenerationGuard aiGenerationGuard;
     private final AiSecurityProperties aiProperties;
+    private final ContentQuotaGuard contentQuotaGuard;
 
     public QuestionGenerationService(
             @Qualifier("defaultStrategy") QuestionGenerationStrategy defaultStrategy,
             AiGenerationGuard aiGenerationGuard,
-            AiSecurityProperties aiProperties) {
+            AiSecurityProperties aiProperties,
+            ContentQuotaGuard contentQuotaGuard) {
         this.activeStrategy = defaultStrategy;
         this.aiGenerationGuard = aiGenerationGuard;
         this.aiProperties = aiProperties;
+        this.contentQuotaGuard = contentQuotaGuard;
         this.strategyName = defaultStrategy.getStrategyName();
 
         log.info("QuestionGenerationService initialized with strategy: {} ({})",
@@ -64,6 +68,8 @@ public class QuestionGenerationService {
     public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
                                   AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         validatePrompt(topic, additionalContext);
+        // M4-UQ-01: the generated packet is owned, so check packets-owned before any AI charge.
+        contentQuotaGuard.checkPacketsOwned(ownerId);
         log.info("Generating packet using strategy: {} with {} questions (bonuses: {})", strategyName, questionCount, generateBonuses);
         try (AiPermit permit = aiGenerationGuard.acquire(requestContext)) {
             Packet packet = activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses,

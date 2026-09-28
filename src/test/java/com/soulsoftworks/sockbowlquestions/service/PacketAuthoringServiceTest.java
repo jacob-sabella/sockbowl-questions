@@ -19,6 +19,7 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
+import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.repository.BonusPartRepository;
 import com.soulsoftworks.sockbowlquestions.repository.BonusRepository;
 import com.soulsoftworks.sockbowlquestions.repository.CategoryRepository;
@@ -58,6 +59,7 @@ class PacketAuthoringServiceTest {
     @Mock private CategoryRepository categoryRepository;
     @Mock private SubcategoryRepository subcategoryRepository;
     @Mock private QuestionGenerationService questionGenerationService;
+    @Mock private ContentQuotaGuard contentQuotaGuard;
 
     private AiSecurityProperties aiSecurityProperties;
     private PacketAuthoringService service;
@@ -67,7 +69,7 @@ class PacketAuthoringServiceTest {
         aiSecurityProperties = new AiSecurityProperties();
         service = new PacketAuthoringService(packetRepository, tossupRepository, bonusRepository,
                 bonusPartRepository, difficultyRepository, categoryRepository, subcategoryRepository,
-                questionGenerationService, aiSecurityProperties);
+                questionGenerationService, aiSecurityProperties, contentQuotaGuard);
         // Most paths save then return the saved entity; echo the argument back.
         lenient().when(packetRepository.save(any(Packet.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(bonusRepository.save(any(Bonus.class))).thenAnswer(inv -> inv.getArgument(0));

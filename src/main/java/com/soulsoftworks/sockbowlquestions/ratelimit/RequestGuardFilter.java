@@ -13,6 +13,7 @@ import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -30,7 +31,9 @@ import java.util.List;
  *   <li>CORS preflights and {@code sockbowl.ratelimit.exempt} paths
  *       ({@code /actuator/health/**}) pass untouched.</li>
  *   <li>{@link IpBanChecker} on the raw remote address (403 {@code ip_banned}).</li>
- *   <li>{@link SubjectBanChecker} for an authenticated subject (403 {@code banned}).</li>
+ *   <li>{@link SubjectBanChecker} for an authenticated subject (403 {@code banned}),
+ *       except on the paths a present {@link SubjectBanDeferral} enforces itself
+ *       ({@code POST /graphql}: a GraphQL {@code BANNED} error, WP-Q4).</li>
  *   <li>When {@code sockbowl.ratelimit.enabled}: every matching
  *       {@code sockbowl.ratelimit.routes} policy is charged in order (all must
  *       pass), then the fallback: {@code service} for the SERVICE tier,
@@ -69,6 +72,7 @@ public class RequestGuardFilter extends OncePerRequestFilter {
     private final UsageTouchTracker usageTouchTracker;
     private final PathMatcher pathMatcher = new AntPathMatcher();
     private final UrlPathHelper urlPathHelper = new UrlPathHelper();
+    private volatile List<String> subjectBanDeferredPaths = List.of();
 
     public RequestGuardFilter(RateLimitService rateLimitService,
                               RateLimitProperties properties,
@@ -100,7 +104,7 @@ public class RequestGuardFilter extends OncePerRequestFilter {
         LimitSubject subject = subjectResolver.resolve(request);
         try {
             ipBanChecker.ensureNotBanned(clientIpResolver.rawAddress(request));
-            if (subject.isAuthenticated()) {
+            if (subject.isAuthenticated() && !isSubjectBanDeferred(path)) {
                 subjectBanChecker.ensureNotBanned(subject.sub());
             }
         } catch (LimitException ban) {
@@ -173,6 +177,30 @@ public class RequestGuardFilter extends OncePerRequestFilter {
             return false;
         }
         return pathMatcher.match(route.getPattern(), path);
+    }
+
+    /**
+     * Declares paths whose subject-ban check a {@link SubjectBanDeferral} performs
+     * itself. Called by {@link RequestGuardFilterConfig} only with the patterns of
+     * deferral beans that exist.
+     */
+    public void deferSubjectBanChecks(Collection<String> patterns) {
+        List<String> merged = new ArrayList<>(subjectBanDeferredPaths);
+        for (String pattern : patterns) {
+            if (pattern != null && !pattern.isBlank() && !merged.contains(pattern)) {
+                merged.add(pattern);
+            }
+        }
+        subjectBanDeferredPaths = List.copyOf(merged);
+    }
+
+    boolean isSubjectBanDeferred(String path) {
+        for (String pattern : subjectBanDeferredPaths) {
+            if (pathMatcher.match(pattern, path)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isExempt(String path) {
