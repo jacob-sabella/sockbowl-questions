@@ -32,12 +32,18 @@ public interface SubcategoryRepository extends Neo4jRepository<Subcategory, Stri
      * Idempotent, case-insensitive create scoped to a category (D4): returns the
      * existing subcategory's id when one already has this nameKey under the category,
      * otherwise creates it. Returns null when the category itself does not exist.
+     * Duplicate subcategories under one category resolve to the lowest id (Q-M3V1-03).
      */
     @Query("""
             MATCH (cat:Category {id: $categoryId})
-            MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {nameKey: $nameKey})
-              ON CREATE SET sub.id = randomUUID(), sub.name = $name
-            RETURN sub.id
+            OPTIONAL MATCH (cat)<-[:SUBCATEGORY_OF]-(s0:Subcategory {nameKey: $nameKey})
+            WITH cat, s0 ORDER BY s0.id LIMIT 1
+            FOREACH (_ IN CASE WHEN s0 IS NULL THEN [1] ELSE [] END |
+              MERGE (cat)<-[:SUBCATEGORY_OF]-(sn:Subcategory {nameKey: $nameKey})
+                ON CREATE SET sn.id = randomUUID(), sn.name = $name)
+            WITH cat
+            MATCH (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {nameKey: $nameKey})
+            RETURN sub.id ORDER BY sub.id LIMIT 1
             """)
     String mergeCreateByNameKey(@Param("categoryId") String categoryId,
                                @Param("nameKey") String nameKey,
