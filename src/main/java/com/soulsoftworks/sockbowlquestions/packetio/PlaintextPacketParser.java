@@ -130,7 +130,13 @@ public class PlaintextPacketParser {
         for (RawLine p : preface) {
             String trimmed = p.text().trim();
             if (suggestedName == null) {
-                suggestedName = trimmed;
+                suggestedName = truncate(trimmed, limits.nameMax());
+                if (suggestedName.length() < trimmed.length()) {
+                    // Q-M3V1-05: the preface line is otherwise bounded only by the import cap.
+                    issues.add(ParseIssue.warning(ParseIssue.NAME_TRUNCATED, p.lineNo(),
+                            "The packet name from line " + p.lineNo() + " was shortened to "
+                                    + limits.nameMax() + " characters"));
+                }
             }
             issues.add(ParseIssue.info(ParseIssue.PREFACE_IGNORED, p.lineNo(),
                     "Line ignored before the first item: \"" + trimmed + "\""));
@@ -394,6 +400,21 @@ public class PlaintextPacketParser {
             }
         }
         return new TagCapture(buf.toString(), tag);
+    }
+
+    /**
+     * At most {@code max} chars, never splitting a surrogate pair, with trailing whitespace
+     * trimmed. Shared by import and clone naming (Q-M3V1-05).
+     */
+    public static String truncate(String s, int max) {
+        if (s == null || s.length() <= max) {
+            return s;
+        }
+        int end = Math.max(0, max);
+        if (end > 0 && Character.isHighSurrogate(s.charAt(end - 1))) {
+            end--;
+        }
+        return s.substring(0, end).stripTrailing();
     }
 
     private static boolean isInlineMarkup(String tagContent) {

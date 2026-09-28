@@ -3,6 +3,7 @@ package com.soulsoftworks.sockbowlquestions.service;
 import com.soulsoftworks.sockbowlquestions.api.input.ImportPacketInput;
 import com.soulsoftworks.sockbowlquestions.config.PacketLimitsProperties;
 import com.soulsoftworks.sockbowlquestions.dto.ImportPacketResultDto;
+import com.soulsoftworks.sockbowlquestions.exception.ValidationFailedException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
 import com.soulsoftworks.sockbowlquestions.packetio.ParseIssue;
@@ -23,6 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -49,8 +51,9 @@ class PacketImportServiceTest {
 
     @BeforeEach
     void setUp() {
+        PacketLimitsProperties limits = new PacketLimitsProperties();
         service = new PacketImportService(packetImportRepository, packetRepository, packetReadPolicy,
-                new PacketLimitsProperties());
+                limits, new PacketValidator(limits));
     }
 
     @Test
@@ -242,5 +245,80 @@ class PacketImportServiceTest {
         assertThat(bonusRows).hasSize(1);
         List<?> parts = (List<?>) bonusRows.get(0).get("parts");
         assertThat(parts).hasSize(3);
+    }
+
+    /* ------------------------------- Q-M3V1-05: name-max ------------------------------- */
+
+    @Test
+    void explicitImportNameOverNameMaxIsAValidationError() {
+        ImportPacketInput input = new ImportPacketInput(ONE_TOSSUP, "x".repeat(201), null, false, false);
+
+        assertThatThrownBy(() -> service.importPacket(input, author))
+                .isInstanceOf(ValidationFailedException.class)
+                .satisfies(e -> assertThat(((ValidationFailedException) e).getField()).isEqualTo(PacketValidator.FIELD_NAME));
+        verify(packetImportRepository, never()).createImportedPacket(
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void explicitImportNameAtNameMaxIsTrimmedAndKept() {
+        stubCreate();
+        String name = "y".repeat(200);
+
+        service.importPacket(new ImportPacketInput(ONE_TOSSUP, "  " + name + "  ", null, false, false), author);
+
+        verify(packetImportRepository).createImportedPacket(
+                eq(name), any(), any(), any(), anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void overlongSuggestedNameIsTruncatedOnCommitAndWarnedInThePreview() {
+        String text = "P".repeat(300) + "\n\n" + ONE_TOSSUP;
+
+        ImportPacketResultDto preview = service.importPacket(new ImportPacketInput(text, null, null, true, false), author);
+        assertThat(preview.issues()).anyMatch(i -> i.code().equals(ParseIssue.NAME_TRUNCATED));
+
+        stubCreate();
+        ImportPacketResultDto committed = service.importPacket(new ImportPacketInput(text, null, null, false, false), author);
+        assertThat(committed.committed()).isTrue();
+        verify(packetImportRepository).createImportedPacket(
+                eq("P".repeat(200)), any(), any(), any(), anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void cloneOfAMaxLengthNameTruncatesSoTheCopySuffixFits() {
+        Packet source = Packet.builder().id("src").name("S".repeat(200)).build();
+        when(packetRepository.findById("src")).thenReturn(Optional.of(source));
+        when(packetReadPolicy.canSee(any(), eq(source))).thenReturn(true);
+        when(packetReadPolicy.canReadFull(any(), eq(source))).thenReturn(true);
+        stubCreate();
+
+        service.clonePacket("src", null, author);
+
+        ArgumentCaptor<String> name = ArgumentCaptor.forClass(String.class);
+        verify(packetImportRepository).createImportedPacket(
+                name.capture(), any(), any(), any(), anyString(), any(), anyString(), eq(PacketImportService.CREATED_VIA_CLONE));
+        assertThat(name.getValue()).hasSize(200).endsWith(" (copy)").startsWith("S".repeat(193));
+    }
+
+    @Test
+    void cloneWithAnExplicitNameOverNameMaxIsAValidationError() {
+        Packet source = Packet.builder().id("src").name("Short").build();
+        when(packetRepository.findById("src")).thenReturn(Optional.of(source));
+        when(packetReadPolicy.canSee(any(), eq(source))).thenReturn(true);
+        when(packetReadPolicy.canReadFull(any(), eq(source))).thenReturn(true);
+
+        assertThatThrownBy(() -> service.clonePacket("src", "z".repeat(201), author))
+                .isInstanceOf(ValidationFailedException.class);
+        verify(packetImportRepository, never()).createImportedPacket(
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString());
+    }
+
+    private void stubCreate() {
+        when(packetImportRepository.createImportedPacket(
+                anyString(), any(), any(), any(), anyString(), any(), anyString(), anyString()))
+                .thenReturn("new-packet-id");
+        when(packetRepository.findById("new-packet-id"))
+                .thenReturn(Optional.of(Packet.builder().id("new-packet-id").build()));
     }
 }

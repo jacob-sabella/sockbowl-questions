@@ -387,6 +387,34 @@ class PlaintextPacketParserTest {
         assertThat(result.tossups().get(2).categoryTag()).isNull();
     }
 
+    /** Q-M3V1-05: a preface line longer than name-max is truncated with a WARNING. */
+    @Test
+    void overlongSuggestedNameIsTruncatedToNameMaxWithAWarning() {
+        String longName = "N".repeat(250);
+        ParseResult result = parser.parse(longName + """
+
+
+                TOSSUPS
+
+                1. Question?
+                ANSWER: answer
+                """, GENEROUS);
+
+        assertThat(result.suggestedName()).hasSize(200).isEqualTo("N".repeat(200));
+        assertThat(result.issues()).anyMatch(i -> i.code().equals(ParseIssue.NAME_TRUNCATED)
+                && i.severity() == IssueSeverity.WARNING && Integer.valueOf(1).equals(i.line()));
+        assertThat(result.tossups()).hasSize(1);
+    }
+
+    @Test
+    void suggestedNameAtNameMaxIsKeptWithoutAWarning() {
+        String name = "M".repeat(200);
+        ParseResult result = parser.parse(name + "\n\n1. Question?\nANSWER: answer\n", GENEROUS);
+
+        assertThat(result.suggestedName()).isEqualTo(name);
+        assertThat(result.issues()).noneMatch(i -> i.code().equals(ParseIssue.NAME_TRUNCATED));
+    }
+
     @Test
     void partValueNotStoredIsInfoForNonDefaultValues() {
         ParseResult result = parser.parse("""
