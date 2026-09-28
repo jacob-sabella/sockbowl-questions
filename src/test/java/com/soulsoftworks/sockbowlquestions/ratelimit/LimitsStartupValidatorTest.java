@@ -40,6 +40,16 @@ class LimitsStartupValidatorTest {
     }
 
     @Test
+    void frameworkStrategyFailsStartupEvenWithAnExplicitRegex() {
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("server.forward-headers-strategy", "framework")
+                .withProperty("server.tomcat.remoteip.internal-proxies", "172\\.18\\.0\\.\\d+");
+        assertThatThrownBy(() -> new LimitsStartupValidator(env, properties).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("server.forward-headers-strategy=framework");
+    }
+
+    @Test
     void defaultStrategyNoneStartsWithABlankRegex() {
         MockEnvironment env = new MockEnvironment()
                 .withProperty("server.forward-headers-strategy", "none")
