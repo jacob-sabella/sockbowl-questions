@@ -46,7 +46,9 @@ public interface QuestionGenerationStrategy {
      * @param requestContext Request context containing optional custom API key and model
      * @param ownerId Keycloak sub of the requesting user, null if anonymous (auth disabled)
      * @param ownerDisplayName preferred_username of the requesting user, null if anonymous
-     * @return Generated packet
+     * @return the generated packet, built but <b>not persisted</b> (FIX3-Q): the
+     *         caller is responsible for saving it, so it can do so under its own
+     *         short-lived lock instead of holding one across this call's AI work
      * @throws JsonProcessingException if JSON processing fails
      */
     Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,

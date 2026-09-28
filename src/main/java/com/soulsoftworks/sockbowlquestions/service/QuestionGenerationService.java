@@ -10,6 +10,7 @@ import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
+import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.service.strategy.QuestionGenerationStrategy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,16 +37,19 @@ public class QuestionGenerationService {
     private final AiGenerationGuard aiGenerationGuard;
     private final AiSecurityProperties aiProperties;
     private final ContentQuotaGuard contentQuotaGuard;
+    private final PacketRepository packetRepository;
 
     public QuestionGenerationService(
             @Qualifier("defaultStrategy") QuestionGenerationStrategy defaultStrategy,
             AiGenerationGuard aiGenerationGuard,
             AiSecurityProperties aiProperties,
-            ContentQuotaGuard contentQuotaGuard) {
+            ContentQuotaGuard contentQuotaGuard,
+            PacketRepository packetRepository) {
         this.activeStrategy = defaultStrategy;
         this.aiGenerationGuard = aiGenerationGuard;
         this.aiProperties = aiProperties;
         this.contentQuotaGuard = contentQuotaGuard;
+        this.packetRepository = packetRepository;
         this.strategyName = defaultStrategy.getStrategyName();
 
         log.info("QuestionGenerationService initialized with strategy: {} ({})",
@@ -69,48 +73,34 @@ public class QuestionGenerationService {
                                   AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         validatePrompt(topic, additionalContext);
         log.info("Generating packet using strategy: {} with {} questions (bonuses: {})", strategyName, questionCount, generateBonuses);
+        // FIX3-Q item 1: an unlocked pre-check of the packets-owned quota, BEFORE
+        // acquiring the AI permit, so a caller already at the limit gets 429
+        // quota_exceeded without burning an ai-generate rate token, the AI
+        // concurrency lock, or an ai.generations quota charge. This can race (it's
+        // the same plain read-then-check ContentQuotaGuard.checkPacketsOwned always
+        // was), so it is an optimization, not the enforcing check: that happens
+        // again, under the lock, immediately before the save below.
+        contentQuotaGuard.checkPacketsOwned(ownerId);
         // M4-UQ-01 / Q-V1-01: the AI concurrency lock (ai:inflight:{sub}, D11) is
-        // acquired FIRST, exactly as before this fix: it already admits at most one
+        // acquired next, exactly as before this fix: it already admits at most one
         // generation per owner at a time, fast-rejecting (429 ai-concurrency, no
         // spin-wait) a second truly-overlapping call instead of queueing it, which
-        // AiGenerationLimitsIT depends on. The packets-owned lock nests INSIDE that
-        // permit, around the strategy call and its packetRepository save: since the
-        // AI lock already serializes generate-vs-generate for one owner, the inner
-        // lock is only ever actually contended by a DIFFERENT entry point
-        // (createPacket, an owned import-random) racing the same owner — which is
-        // exactly the case it needs to close. Nesting it the other way around (the
-        // packets-owned lock as the outer gate) would make a second concurrent
-        // generate call spin-wait behind the first's whole AI call instead of
-        // getting the fast ai-concurrency rejection, changing that contract.
+        // AiGenerationLimitsIT depends on.
         try (AiPermit permit = aiGenerationGuard.acquire(requestContext)) {
-            try {
-                Packet packet = contentQuotaGuard.withPacketsOwnedSlot(ownerId, () -> {
-                    try {
-                        return activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses,
-                                requestContext, ownerId, ownerDisplayName);
-                    } catch (JsonProcessingException e) {
-                        throw new UncheckedGenerationException(e);
-                    }
-                });
-                permit.success((long) questionCount * (generateBonuses ? 2 : 1));
-                return packet;
-            } catch (UncheckedGenerationException e) {
-                throw e.cause();
-            }
-        }
-    }
-
-    /** Carries a checked {@link JsonProcessingException} out of the {@code Supplier} the packets-owned lock runs. */
-    private static final class UncheckedGenerationException extends RuntimeException {
-        private final JsonProcessingException cause;
-
-        UncheckedGenerationException(JsonProcessingException cause) {
-            super(cause);
-            this.cause = cause;
-        }
-
-        JsonProcessingException cause() {
-            return cause;
+            // FIX3-Q item 1: the (possibly slow, real-world multi-second) AI call
+            // runs OUTSIDE the packets-owned lock. The lock's TTL is only 10s and
+            // must never be held across work that can outlast it — a caller whose
+            // lock silently expired mid-generation could let a second creator in,
+            // or fail its own compare-and-delete release. The strategy builds the
+            // Packet but does not persist it (see its Javadoc); only the fast save
+            // below is serialized per owner, re-checking the count right before it
+            // commits so a slow generation still can't overshoot the quota even if
+            // another caller filled it while this one was generating.
+            Packet packet = activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses,
+                    requestContext, ownerId, ownerDisplayName);
+            Packet saved = contentQuotaGuard.withPacketsOwnedSlot(ownerId, () -> packetRepository.save(packet));
+            permit.success((long) questionCount * (generateBonuses ? 2 : 1));
+            return saved;
         }
     }
 
