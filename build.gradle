@@ -78,6 +78,13 @@ tasks.named('test') {
 	useJUnitPlatform()
 	// Fail the build if test sources exist but nothing is discovered — guards
 	// against a silently-broken test-discovery config landing green in CI.
+	// M4-FIX2 (Q-V1-01/03, G-M4-V1-05): three more @SpringBootTest classes each
+	// load their own distinct ApplicationContext (ActuatorHealthRedisDownIT,
+	// CfConnectingIpIT, PacketsOwnedConcurrencyIT's three variants), and Spring's
+	// test context cache never evicts any of them mid-run. That pushed the whole
+	// suite's single forked test JVM past Gradle's 512m default heap, failing
+	// unrelated later tests with OutOfMemoryError instead of a real assertion.
+	maxHeapSize = '2g'
 }
 
 /* -------------------------- Models-only artifacts -------------------------- */

@@ -4,10 +4,16 @@ server:
   # headers are trusted only with strategy=native AND an explicit trusted-proxy
   # regex; an EMPTY internal-proxies trusts everyone, so LimitsStartupValidator
   # refuses to start with native + blank regex (plan m4-limits section 2.1).
+  # strategy=framework is refused outright by the same validator: it has no
+  # trusted-proxy check at all, so it would trust any client's X-Forwarded-For.
   forward-headers-strategy: "${SOCKBOWL_FORWARD_HEADERS_STRATEGY:none}"
   tomcat:
     remoteip:
       internal-proxies: "${SOCKBOWL_TRUSTED_PROXIES_REGEX:}"
+      # D26/M7: behind Cloudflare (via aa-caddy) this is CF-Connecting-IP;
+      # x-forwarded-for is the default for a plain reverse proxy. Only read at
+      # all with strategy=native and a non-blank internal-proxies regex above.
+      remote-ip-header: "${SOCKBOWL_REMOTE_IP_HEADER:x-forwarded-for}"
 
 management:
   endpoints:
@@ -21,6 +27,16 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    redis:
+      # D12: every limiter, quota and ban check here fails open on a Redis
+      # outage, and AI generation already fails closed per request (503
+      # limiter_unavailable). Without this, a Redis blip still turns this
+      # health check DOWN, which (via compose's depends_on: service_healthy)
+      # blocks game and ng from starting or being recreated even though
+      # nothing here actually stopped working. Game keeps Redis in its own
+      # health check, because GameSession state lives in Redis OM.
+      enabled: false
 
 sockbowl:
   auth:

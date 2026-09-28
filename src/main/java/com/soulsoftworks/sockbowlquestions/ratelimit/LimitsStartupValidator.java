@@ -14,10 +14,13 @@ import java.util.Map;
  * m4-limits section 2.1).
  *
  * <ul>
- *   <li>{@code server.forward-headers-strategy=native} with a blank
- *       {@code server.tomcat.remoteip.internal-proxies}: in Spring Boot an
- *       <b>empty</b> internal-proxies regex trusts every peer, so any client could
- *       pick its own rate-limit key with {@code X-Forwarded-For}.</li>
+ *   <li>{@code server.forward-headers-strategy} anything other than the default
+ *       {@code none} or {@code native} with a non-blank
+ *       {@code server.tomcat.remoteip.internal-proxies}: {@code framework}
+ *       trusts every {@code X-Forwarded-For} unconditionally, with no
+ *       trusted-proxy check at all, and {@code native} with a <b>blank</b>
+ *       internal-proxies regex trusts every peer the same way — either lets any
+ *       client pick its own rate-limit key (Q-V1-02, G-M4-V1-04).</li>
  *   <li>A policy with a non-positive capacity or refill period, or a route
  *       naming an undefined policy (only when rate limiting is enabled).</li>
  * </ul>
@@ -46,10 +49,16 @@ public class LimitsStartupValidator implements InitializingBean {
 
         String strategy = environment.getProperty(STRATEGY, "none").trim().toLowerCase(Locale.ROOT);
         String proxies = environment.getProperty(INTERNAL_PROXIES);
-        if ("native".equals(strategy) && (proxies == null || proxies.isBlank())) {
-            problems.add(STRATEGY + "=native requires an explicit " + INTERNAL_PROXIES
-                    + " regex (SOCKBOWL_TRUSTED_PROXIES_REGEX); a blank value trusts every client's"
-                    + " X-Forwarded-For");
+        if ("native".equals(strategy)) {
+            if (proxies == null || proxies.isBlank()) {
+                problems.add(STRATEGY + "=native requires an explicit " + INTERNAL_PROXIES
+                        + " regex (SOCKBOWL_TRUSTED_PROXIES_REGEX); a blank value trusts every client's"
+                        + " X-Forwarded-For");
+            }
+        } else if (!"none".equals(strategy)) {
+            problems.add(STRATEGY + "=" + strategy + " is not allowed; use 'none', or 'native' with an explicit "
+                    + INTERNAL_PROXIES + " regex. 'framework' trusts every client's X-Forwarded-For with no"
+                    + " trusted-proxy check at all.");
         }
 
         if (properties.isEnabled()) {

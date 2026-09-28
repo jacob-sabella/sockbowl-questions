@@ -87,21 +87,25 @@ public class QbreaderImportService {
                                             String ownerId, String ownerDisplayName,
                                             PacketVisibility visibility) {
         PacketVisibility effectiveVisibility = visibility == null ? PacketVisibility.defaultForNewPackets() : visibility;
-        // M4-UQ-01: an owned import counts toward packets-owned and today's imports
-        // (refunded if it fails). A game-only EPHEMERAL import has no owner (D15) and
-        // is bounded by the import/import-ip rate policies instead.
-        ContentQuotaGuard.ImportCharge charge = ContentQuotaGuard.ImportCharge.NONE;
+        // M4-UQ-01 / Q-V1-01: an owned import counts toward packets-owned (checked
+        // and created under the same per-owner lock as createPacket, so concurrent
+        // imports can't overshoot the quota) and today's imports (refunded if it
+        // fails). A game-only EPHEMERAL import has no owner (D15) and is bounded by
+        // the import/import-ip rate policies instead.
         if (ownerId != null && !effectiveVisibility.isGameOnly()) {
-            contentQuotaGuard.checkPacketsOwned(ownerId);
-            charge = contentQuotaGuard.chargeImport(ownerId);
+            return contentQuotaGuard.withPacketsOwnedSlot(ownerId, () -> {
+                ContentQuotaGuard.ImportCharge charge = contentQuotaGuard.chargeImport(ownerId);
+                try {
+                    return createFromBank(filter, tossupCount, bonusCount, name, excludeRemoteIds, balanced,
+                            ownerId, ownerDisplayName, effectiveVisibility);
+                } catch (RuntimeException e) {
+                    charge.refund();
+                    throw e;
+                }
+            });
         }
-        try {
-            return createFromBank(filter, tossupCount, bonusCount, name, excludeRemoteIds, balanced,
-                    ownerId, ownerDisplayName, effectiveVisibility);
-        } catch (RuntimeException e) {
-            charge.refund();
-            throw e;
-        }
+        return createFromBank(filter, tossupCount, bonusCount, name, excludeRemoteIds, balanced,
+                ownerId, ownerDisplayName, effectiveVisibility);
     }
 
     private ImportOutcome createFromBank(QbRandomFilter filter, int tossupCount, int bonusCount,

@@ -29,11 +29,8 @@ spring:
       host: 127.0.0.1
       port: 1
 
-# With Redis deliberately unreachable above, Boot's auto-configured Redis health
-# contributor would report DOWN and turn /actuator/health into a 503 for every
-# test (RestEndpointsAuthIT's Q-M2-06 check asserts UP). Tests that start a Redis
-# Testcontainer are unaffected by this: they check limits, not health.
-management:
-  health:
-    redis:
-      enabled: false
+# Q-V1-03: management.health.redis.enabled=false now ships in the main
+# application.yml (D12: Redis outages here fail open, so this health check
+# must not go DOWN with Redis unreachable, as it deliberately is above). That
+# shipped default already covers every test here (RestEndpointsAuthIT's
+# Q-M2-06 check asserts UP with Redis unreachable); no override is needed.

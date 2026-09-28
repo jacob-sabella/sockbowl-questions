@@ -87,22 +87,31 @@ public class PacketAuthoringService {
 
     /* ------------------------------- Packet -------------------------------- */
 
-    @Transactional
+    // Q-V1-01: deliberately NOT @Transactional. A method-level @Transactional here
+    // would wrap the whole withPacketsOwnedSlot call (lock acquire, count, save,
+    // lock release) in one Spring transaction that only commits when this method
+    // RETURNS — after the lock is already released. A second caller could then
+    // acquire the freed lock and count the still-uncommitted save away, overshooting
+    // the quota despite the lock. packetRepository.save() below is transactional on
+    // its own (Spring Data's generated repository methods are), and commits before
+    // withPacketsOwnedSlot releases the lock, which is what actually closes the race.
     public Packet createPacket(CreatePacketInput input, String ownerId, String ownerDisplayName) {
         String name = requireText(input.name(), "Packet name");
-        // M4-UQ-01: packets-owned quota (D10); recovers when the owner deletes a packet.
-        contentQuotaGuard.checkPacketsOwned(ownerId);
-        Packet.PacketBuilder builder = Packet.builder().name(name)
-                .ownerId(ownerId)
-                .ownerDisplayName(ownerDisplayName)
-                // D2: new packets start as drafts; the owner publishes via setPacketVisibility.
-                .visibility(PacketVisibility.defaultForNewPackets())
-                // D13, M4-PV-01: hand-authored through this API.
-                .source(ContentSource.AUTHORED);
-        if (input.difficultyId() != null && !input.difficultyId().isBlank()) {
-            builder.difficulty(requireDifficulty(input.difficultyId()));
-        }
-        return packetRepository.save(builder.build());
+        // M4-UQ-01 / Q-V1-01: packets-owned quota (D10), serialized per owner so
+        // concurrent creates can't overshoot it; recovers when the owner deletes a packet.
+        return contentQuotaGuard.withPacketsOwnedSlot(ownerId, () -> {
+            Packet.PacketBuilder builder = Packet.builder().name(name)
+                    .ownerId(ownerId)
+                    .ownerDisplayName(ownerDisplayName)
+                    // D2: new packets start as drafts; the owner publishes via setPacketVisibility.
+                    .visibility(PacketVisibility.defaultForNewPackets())
+                    // D13, M4-PV-01: hand-authored through this API.
+                    .source(ContentSource.AUTHORED);
+            if (input.difficultyId() != null && !input.difficultyId().isBlank()) {
+                builder.difficulty(requireDifficulty(input.difficultyId()));
+            }
+            return packetRepository.save(builder.build());
+        });
     }
 
     @Transactional

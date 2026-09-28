@@ -37,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,6 +75,10 @@ class PacketAuthoringServiceTest {
         lenient().when(packetRepository.save(any(Packet.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(bonusRepository.save(any(Bonus.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(tossupRepository.save(any(Tossup.class))).thenAnswer(inv -> inv.getArgument(0));
+        // createPacket runs under the packets-owned lock (Q-V1-01); just run the supplier.
+        // ownerId may be null (anonymous caller), so match it with any(), not anyString().
+        lenient().when(contentQuotaGuard.withPacketsOwnedSlot(any(), any(Supplier.class)))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(1)).get());
     }
 
     private Packet packetWithId(String id) {

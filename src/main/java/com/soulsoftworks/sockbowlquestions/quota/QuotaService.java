@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -77,23 +78,41 @@ public class QuotaService {
     /**
      * The limit that applies to a subject: {@code -1} when quotas are off or the
      * tier skips them, otherwise the override (if any) or the tier default. Used
-     * directly by the concurrent/owned metrics (hosted sessions, packets owned).
-     * A Redis failure falls back to the tier default.
+     * directly by the concurrent/owned metrics (hosted sessions, packets owned)
+     * and by {@link #dailyStatus} for display. A Redis failure falls back to the
+     * tier default — fine for a status read, but see {@link #effectiveLimitOrUnknown}
+     * for a caller (like {@code checkPacketsOwned}, Q-V1-04) that actually gates a
+     * create on the result and must not silently reject on a wrong fallback.
      */
     public long effectiveLimit(LimitSubject subject, String metric) {
+        return effectiveLimitOrUnknown(subject, metric)
+                .orElseGet(() -> properties.defaultLimit(subject.tier(), metric));
+    }
+
+    /**
+     * Like {@link #effectiveLimit}, but tells the two D12 fail-open cases apart:
+     * {@link OptionalLong#empty()} means the override lookup itself failed
+     * (Redis unavailable) — the limit is genuinely <b>unknown</b>, not "no
+     * override, use the tier default". A caller that enforces a hard cap (an
+     * owned-resource check, not a daily counter) must treat "unknown" as
+     * "allow" (D12), since comparing a live count against a possibly-wrong
+     * fallback can reject a create that a reachable override would have
+     * allowed (Q-V1-04) — the opposite of failing open.
+     */
+    public OptionalLong effectiveLimitOrUnknown(LimitSubject subject, String metric) {
         if (!properties.isEnabled() || subject.tier().skipsQuotas()) {
-            return QuotaProperties.UNLIMITED;
+            return OptionalLong.of(QuotaProperties.UNLIMITED);
         }
         long fallback = properties.defaultLimit(subject.tier(), metric);
         if (subject.sub() == null) {
-            return fallback;
+            return OptionalLong.of(fallback);
         }
         try {
             String override = redis.sync().hget(UsageKeys.quotaOverride(subject.sub()), metric);
-            return override == null ? fallback : Long.parseLong(override.trim());
+            return OptionalLong.of(override == null ? fallback : Long.parseLong(override.trim()));
         } catch (RuntimeException e) {
             warn("override lookup", e);
-            return fallback;
+            return OptionalLong.empty();
         }
     }
 
