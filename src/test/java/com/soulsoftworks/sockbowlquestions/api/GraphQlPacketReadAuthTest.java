@@ -337,6 +337,35 @@ class GraphQlPacketReadAuthTest {
 
     /* --------------------------------- helpers --------------------------------- */
 
+    /* ------------------------ owner.id (Q-M2-01, the sub) ------------------------ */
+
+    @Test
+    void ownerIdIsHiddenFromCallersWhoCannotReadThePacketInFull() throws Exception {
+        published.setOwnerDisplayName("Owner Name");
+        for (RequestPostProcessor[] who : List.of(new RequestPostProcessor[0],
+                new RequestPostProcessor[]{as("player-sub", "game:host")},
+                new RequestPostProcessor[]{as("other-author", "packet:create", "packet:update")})) {
+            graphql("{ getPacketById(id: \"pub\") { owner { id name } } }", who)
+                    .andExpect(jsonPath("$.errors").doesNotExist())
+                    .andExpect(jsonPath("$.data.getPacketById.owner.id").value(nullValue()))
+                    .andExpect(jsonPath("$.data.getPacketById.owner.name").value("Owner Name"));
+            graphql("{ getAllPackets { owner { id } } }", who)
+                    .andExpect(jsonPath("$.data.getAllPackets[*].owner.id", everyItem(nullValue())));
+            graphql("{ searchPacketsByName(name: \"p\") { owner { id } } }", who)
+                    .andExpect(jsonPath("$.data.searchPacketsByName[*].owner.id", everyItem(nullValue())));
+        }
+    }
+
+    @Test
+    void ownerIdIsVisibleToTheOwnerManageAnyAndTheServiceToken() throws Exception {
+        for (RequestPostProcessor who : List.of(as(OWNER, "packet:create"),
+                as("admin-sub", "packet:manage-any"),
+                as("service-account", "packet:read", "packet:read-answers"))) {
+            graphql("{ getPacketById(id: \"pub\") { owner { id } } }", who)
+                    .andExpect(jsonPath("$.data.getPacketById.owner.id").value(OWNER));
+        }
+    }
+
     private static org.hamcrest.Matcher<Iterable<? extends Object>> everyItemIs(Object value) {
         return everyItem(org.hamcrest.Matchers.is(value));
     }

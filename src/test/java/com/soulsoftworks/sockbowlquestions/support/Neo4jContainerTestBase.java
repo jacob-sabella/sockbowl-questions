@@ -28,7 +28,14 @@ public abstract class Neo4jContainerTestBase {
 
     @ServiceConnection
     protected static final Neo4jContainer NEO4J = new Neo4jContainer(DockerImageName.parse(NEO4J_IMAGE))
-            .withoutAuthentication();
+            .withoutAuthentication()
+            // BankRepository/BankStatsRepository use apoc.map.fromPairs (matches the
+            // apoc-2026.09.0-core.jar sockbowl-docker's plugin script installs for this
+            // same image tag); without it, any test that hits those queries for real
+            // (not through a @MockitoBean service layer) gets "Unknown function".
+            .withPlugins("apoc")
+            .withEnv("NEO4J_dbms_security_procedures_unrestricted", "apoc.*")
+            .withEnv("NEO4J_dbms_security_procedures_allowlist", "apoc.*");
 
     static {
         NEO4J.start();

@@ -58,7 +58,7 @@ class QbreaderImportAuthTest {
         p.setId("new-packet");
         p.setName("Random packet");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                any())).thenReturn(new ImportOutcome(p, List.of("r1", "r2")));
+                any())).thenReturn(new ImportOutcome(p, List.of("r1", "r2"), 5, 5));
     }
 
     private static MockHttpServletRequestBuilder importRequest(String body) {

@@ -152,7 +152,7 @@ class SecurityConfigTest {
         Packet p = new Packet();
         p.setId("eph");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                any())).thenReturn(new ImportOutcome(p, List.of()));
+                any())).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         mvc.perform(post("/api/qbreader/import-random").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk());
