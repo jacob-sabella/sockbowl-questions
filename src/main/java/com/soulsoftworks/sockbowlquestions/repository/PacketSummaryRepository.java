@@ -99,7 +99,9 @@ public class PacketSummaryRepository {
                 .bindAll(pageParams)
                 .fetch().all();
 
-        List<PacketSummaryDto> items = rows.stream().map(PacketSummaryRepository::toDto).toList();
+        List<PacketSummaryDto> items = rows.stream()
+                .map(row -> toDto(row, canReadEveryPacket, callerId))
+                .toList();
         return new PacketPageDto(items, (int) total, page, size);
     }
 
@@ -169,13 +171,22 @@ public class PacketSummaryRepository {
         return where.toString();
     }
 
-    private static PacketSummaryDto toDto(Map<String, Object> row) {
+    /**
+     * Maps one row. {@code owner.id} is the author's Keycloak subject, so it is redacted with
+     * the same rule {@code GraphQLController.owner} applies to {@code Packet.owner}
+     * (Q-M2-01, Q-M3V1-01): the id is only returned to a caller who may read every packet
+     * (auth off, {@code packet:manage-any}, {@code packet:read-answers}) or who owns the row.
+     * Everyone else gets the display name with a null id. EPHEMERAL rows never reach here,
+     * so this matches {@code PacketReadPolicy.canReadFull} for every listed row.
+     */
+    private static PacketSummaryDto toDto(Map<String, Object> row, boolean canReadEveryPacket, String callerId) {
         String difficultyId = (String) row.get("difficultyId");
         Difficulty difficulty = difficultyId == null ? null
                 : Difficulty.builder().id(difficultyId).name((String) row.get("difficultyName")).build();
         String ownerId = (String) row.get("ownerId");
         PacketOwnerDto owner = ownerId == null ? null
-                : new PacketOwnerDto(ownerId, (String) row.get("ownerDisplayName"));
+                : new PacketOwnerDto(canReadEveryPacket || ownerId.equals(callerId) ? ownerId : null,
+                        (String) row.get("ownerDisplayName"));
         return new PacketSummaryDto(
                 (String) row.get("id"),
                 (String) row.get("name"),

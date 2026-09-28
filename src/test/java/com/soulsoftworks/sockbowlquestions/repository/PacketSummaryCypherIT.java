@@ -311,6 +311,40 @@ class PacketSummaryCypherIT extends Neo4jContainerTestBase {
         assertThat(publishedWithDifficulty.difficulty().getName()).isEqualTo("q5sum Hard");
     }
 
+    /**
+     * Q-M3V1-01: {@code owner.id} is the author's Keycloak subject, so the list redacts it
+     * with the same rule as {@code Packet.owner} (Q-M2-01): only the owner, a caller who may
+     * read every packet ({@code packet:manage-any}/{@code packet:read-answers}), or anyone
+     * with auth off gets the id. Everyone else still gets the display name.
+     */
+    @Test
+    void ownerIdRedactedForAnonymousAndOtherAuthorsButNotOwnerAdminOrAuthOff() {
+        neo4j.query("MATCH (p:Packet {id: 'q5sum-p-a-1'}) SET p.ownerDisplayName = 'Alice A'").run();
+        PacketFilterInput all = filter(null, "q5sum", null, null, null);
+
+        PacketSummaryDto asAnonymous = byId(queryAs(authOnRepo, anonymous(), all, 0, 100), "q5sum-p-a-1");
+        PacketSummaryDto asOtherAuthor = byId(queryAs(authOnRepo, jwt(OWNER_B, "packet:create"), all, 0, 100),
+                "q5sum-p-a-1");
+        PacketSummaryDto asOwner = byId(queryAs(authOnRepo, jwt(OWNER_A, "packet:create"), all, 0, 100),
+                "q5sum-p-a-1");
+        PacketSummaryDto asManageAny = byId(queryAs(authOnRepo, jwt("q5sum-admin", "packet:manage-any"), all, 0, 100),
+                "q5sum-p-a-1");
+        PacketSummaryDto authOff = byId(queryAs(authOffRepo, anonymous(), all, 0, 100), "q5sum-p-a-1");
+
+        assertThat(asAnonymous.owner().id()).isNull();
+        assertThat(asAnonymous.owner().name()).isEqualTo("Alice A");
+        assertThat(asOtherAuthor.owner().id()).isNull();
+        assertThat(asOtherAuthor.owner().name()).isEqualTo("Alice A");
+        // The other author's own row keeps its id, so ng's canManage comparison still works.
+        assertThat(byId(queryAs(authOnRepo, jwt(OWNER_B, "packet:create"), all, 0, 100), "q5sum-p-b-1")
+                .owner().id()).isEqualTo(OWNER_B);
+
+        assertThat(asOwner.owner().id()).isEqualTo(OWNER_A);
+        assertThat(asManageAny.owner().id()).isEqualTo(OWNER_A);
+        assertThat(authOff.owner().id()).isEqualTo(OWNER_A);
+        assertThat(authOff.owner().name()).isEqualTo("Alice A");
+    }
+
     /* --------------------------------- helpers -------------------------------- */
 
     private static PacketFilterInput filter(Boolean mine, String nameContains, String difficultyId,
