@@ -1,5 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.config;
 
+import com.soulsoftworks.sockbowlquestions.api.AdminUsageController;
 import com.soulsoftworks.sockbowlquestions.ratelimit.RequestGuardFilter;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.ObjectProvider;
@@ -94,6 +95,9 @@ public class SecurityConfig {
                     // D15: guests and players get an EPHEMERAL packet, packet:create an owned DRAFT.
                     a.requestMatchers(HttpMethod.POST, "/api/qbreader/import-random").permitAll();
                     a.requestMatchers("/api/packets/generate").authenticated();
+                    // M4-AD-01: game's admin usage API relays the admin's own token here.
+                    a.requestMatchers(HttpMethod.GET, "/api/admin/usage/content-counts")
+                            .hasAuthority(AdminUsageController.ADMIN_ACCESS);
                     a.requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll();
                     if (graphiqlEnabled) {
                         a.requestMatchers(HttpMethod.GET, graphiqlPath, graphiqlPath + "/**").permitAll();
