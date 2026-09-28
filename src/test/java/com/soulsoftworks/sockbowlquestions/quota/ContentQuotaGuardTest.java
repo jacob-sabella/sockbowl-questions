@@ -51,7 +51,7 @@ class ContentQuotaGuardTest {
     }
 
     private ContentQuotaGuard guard(boolean authEnabled) {
-        return new ContentQuotaGuard(quotaService, resolver, packets, recorder, redis, authEnabled);
+        return new ContentQuotaGuard(quotaService, resolver, packets, recorder, redis, new QuotaProperties(), authEnabled);
     }
 
     /** A guard whose lock spin-waits fast, for the contention/timeout tests below. */
@@ -153,7 +153,8 @@ class ContentQuotaGuardTest {
         // once raised the real limit higher, and that override is now unreachable).
         when(packets.countByOwnerId("kc-1")).thenReturn(999L);
 
-        new ContentQuotaGuard(realQuotaService, resolver, packets, recorder, redis, true).checkPacketsOwned("kc-1");
+        new ContentQuotaGuard(realQuotaService, resolver, packets, recorder, redis, new QuotaProperties(), true)
+                .checkPacketsOwned("kc-1");
 
         verifyNoInteractions(recorder);
     }
@@ -224,6 +225,29 @@ class ContentQuotaGuardTest {
 
         assertThat(result).isEqualTo("created");
         verify(redisCommands, times(3)).set(anyString(), anyString(), any(SetArgs.class));
+    }
+
+    /** FIX3-Q item 2: the public (Spring) constructor takes its spin timeout from properties. */
+    @Test
+    void publicConstructorSpinWaitsForTheConfiguredTimeoutNotTheOldFiveSecondDefault() {
+        when(redis.sync()).thenReturn(redisCommands);
+        when(redisCommands.set(anyString(), anyString(), any(SetArgs.class))).thenReturn(null);
+        QuotaProperties properties = new QuotaProperties();
+        properties.setPacketsOwnedLockSpinTimeout(Duration.ofMillis(50));
+        ContentQuotaGuard guard = new ContentQuotaGuard(quotaService, resolver, packets, recorder, redis, properties, true);
+
+        long startNanos = System.nanoTime();
+        assertThatThrownBy(() -> guard.withPacketsOwnedSlot("kc-1", () -> "created"))
+                .isInstanceOf(RateLimitExceededException.class);
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+
+        assertThat(elapsedMs).as("spin-wait should honor the configured ~50ms timeout, not 5s").isLessThan(2_000);
+    }
+
+    /** FIX3-Q item 2: the shipped default is ~1.5s, well under the old 5s. */
+    @Test
+    void theDefaultSpinTimeoutIsAboutOnePointFiveSeconds() {
+        assertThat(new QuotaProperties().getPacketsOwnedLockSpinTimeout()).isEqualTo(Duration.ofMillis(1_500));
     }
 
     @Test

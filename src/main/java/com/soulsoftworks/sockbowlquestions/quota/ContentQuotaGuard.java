@@ -70,7 +70,6 @@ public class ContentQuotaGuard {
     /** {@code SET NX} lock guarding one owner's packets-owned slot. */
     private static final String LOCK_PREFIX = "quota:lock:packets-owned:";
     private static final Duration DEFAULT_LOCK_TTL = Duration.ofMillis(10_000);
-    private static final Duration DEFAULT_SPIN_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration DEFAULT_SPIN_INTERVAL = Duration.ofMillis(25);
     private static final long WARN_INTERVAL_MS = 60_000;
 
@@ -93,9 +92,10 @@ public class ContentQuotaGuard {
                              PacketRepository packetRepository,
                              RateLimitEventRecorder eventRecorder,
                              RateLimitRedis redis,
+                             QuotaProperties quotaProperties,
                              @Value("${sockbowl.auth.enabled:false}") boolean authEnabled) {
         this(quotaService, subjectResolver, packetRepository, eventRecorder, redis, authEnabled,
-                DEFAULT_LOCK_TTL, DEFAULT_SPIN_TIMEOUT, DEFAULT_SPIN_INTERVAL);
+                DEFAULT_LOCK_TTL, quotaProperties.getPacketsOwnedLockSpinTimeout(), DEFAULT_SPIN_INTERVAL);
     }
 
     /** As above, with the lock's timing overridden (tests only: a fast spin timeout/interval). */
@@ -127,7 +127,9 @@ public class ContentQuotaGuard {
      *
      * <p>Acquires {@code quota:lock:packets-owned:{sub}} ({@code SET NX}, a
      * 10s TTL, via the same {@link InflightLock} primitive as the AI
-     * concurrency lock), spin-waiting up to ~5s for a contended lock before
+     * concurrency lock), spin-waiting up to {@code sockbowl.quota.packets-owned-lock-spin-timeout}
+     * (FIX3-Q item 2; default ~1.5s, lowered from an earlier 5s that pinned a
+     * servlet thread that long under contention) for a contended lock before
      * giving up with a 429 {@code rate_limited} (a short
      * {@code retryAfterSeconds}, not a quota rejection: the caller should
      * simply retry). The lock is released by a compare-and-delete keyed on a
