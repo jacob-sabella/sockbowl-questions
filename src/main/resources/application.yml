@@ -127,6 +127,11 @@ sockbowl:
         refill-period: "${SOCKBOWL_RL_AI_GENERATE_REFILL_PERIOD:1h}"
         key-by: user
         fail-closed: true
+        # A cost control, not a UX limit: authors and moderators (the only
+        # tiers with question:generate) get the flat 10/h, not the global 2x/3x.
+        tier-multipliers:
+          author: 1.0
+          moderator: 1.0
       import:
         capacity: "${SOCKBOWL_RL_IMPORT_CAPACITY:10}"
         refill-period: "${SOCKBOWL_RL_IMPORT_REFILL_PERIOD:1h}"
