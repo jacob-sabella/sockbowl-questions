@@ -56,6 +56,21 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
     private record PacketId(String id) {
     }
 
+    private record BonusPartAnswer(String answer) {
+    }
+
+    private record HasBonusPartRef(BonusPartAnswer bonusPart) {
+    }
+
+    private record BonusRef(List<HasBonusPartRef> bonusParts) {
+    }
+
+    private record ContainsBonusRef(BonusRef bonus) {
+    }
+
+    private record PacketBonusDetail(String id, List<ContainsBonusRef> bonuses) {
+    }
+
     @BeforeEach
     void seed() {
         searchToken = UUID.randomUUID().toString().substring(0, 8);
@@ -77,9 +92,21 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
         List<Map<String, Object>> tossups = List.of(Map.of(
                 "question", "Q?", "answer", answer,
                 "category", "Q3ReadCat", "subcategory", "Q3ReadSub", "remoteId", "", "order", 0));
-        return packetRepository.batchCreatePacket(NAME_PREFIX + searchToken + "-" + suffix, "Easy", tossups, List.of(),
+        // Q4-02: every seeded packet also carries one bonus with one part, so the
+        // BonusPart.answer redaction path (PacketProjection.answerFree) has real-Neo4j/
+        // Keycloak coverage, not just slice/unit tests (GraphQlPacketReadAuthTest,
+        // PacketProjectionTest).
+        List<Map<String, Object>> bonusParts = List.of(Map.of("question", "BQ?", "answer", bonusAnswer(answer), "order", 0));
+        List<Map<String, Object>> bonuses = List.of(Map.of(
+                "preamble", "BP?", "category", "Q3ReadCat", "subcategory", "Q3ReadSub", "remoteId", "", "order", 0,
+                "parts", bonusParts));
+        return packetRepository.batchCreatePacket(NAME_PREFIX + searchToken + "-" + suffix, "Easy", tossups, bonuses,
                 ownerId, "owner-" + ownerId, visibility.name(), null,
                 ownerId == null ? "anonymous" : ownerId, Instant.now().toString(), ContentSource.AUTHORED.name());
+    }
+
+    private static String bonusAnswer(String tossupAnswer) {
+        return tossupAnswer + "Bonus";
     }
 
     /* ------------------------------- getPacketById ------------------------------- */
@@ -150,6 +177,31 @@ class GraphQlReadAuthorizationIT extends KeycloakAuthITBase {
             assertThat(allPackets(token)).doesNotContainKey(ephemeralId);
             assertThat(searchIds(token)).doesNotContain(ephemeralId);
         }
+    }
+
+    /* --------------------------- bonusPart.answer (Q4-02) --------------------------- */
+
+    /**
+     * The same answer redaction rule that applies to a tossup's answer must also apply
+     * to a bonus part's answer, over the real GraphQL HTTP path: null for callers who
+     * may not read the packet in full, present for the owner and the service token.
+     */
+    @Test
+    void bonusPartAnswerIsRedactedForAnonymousAndPlayerButVisibleToOwnerAndService() {
+        for (String token : Arrays.asList(null, tokenFor(PLAYER))) {
+            assertThat(bonusPartAnswer(token, publishedId))
+                    .as("anonymous/player must not see a bonus part's answer on a PUBLISHED packet")
+                    .isNull();
+        }
+        assertThat(bonusPartAnswer(tokenFor(AUTHOR2), publishedId)).isEqualTo(bonusAnswer("PublicAnswer"));
+        assertThat(bonusPartAnswer(serviceToken(), publishedId)).isEqualTo(bonusAnswer("PublicAnswer"));
+    }
+
+    private String bonusPartAnswer(String token, String packetId) {
+        PacketBonusDetail detail = graphQlTester(token)
+                .document("{ getPacketById(id: \"" + packetId + "\") { id bonuses { bonus { bonusParts { bonusPart { answer } } } } } }")
+                .execute().path("getPacketById").entity(PacketBonusDetail.class).get();
+        return detail.bonuses().get(0).bonus().bonusParts().get(0).bonusPart().answer();
     }
 
     /* ------------------------------ getAllPackets ------------------------------ */

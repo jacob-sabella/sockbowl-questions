@@ -7,6 +7,7 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.repository.BankRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
+import com.soulsoftworks.sockbowlquestions.security.PacketReadPolicy;
 import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,25 +41,20 @@ public class QbreaderImportService {
     /** Recorded as {@code createdVia} on every packet this service creates (D15). */
     public static final String CREATED_VIA = "import-random";
 
-    /**
-     * Names of the visibilities anyone may see (Q3-01): used to scope the unique-name
-     * check so it never reveals whether another caller's private (DRAFT) packet exists.
-     */
-    private static final List<String> PUBLIC_VISIBILITIES = java.util.Arrays.stream(PacketVisibility.values())
-            .filter(PacketVisibility::isPubliclyReadable).map(Enum::name).toList();
-    private static final String LEGACY_VISIBILITY = PacketVisibility.effective(null).name();
-
     private final BankRepository bankRepository;
     private final PacketRepository packetRepository;
     private final SecurityAuditorAware securityAuditorAware;
     private final ContentQuotaGuard contentQuotaGuard;
+    private final PacketReadPolicy packetReadPolicy;
 
     public QbreaderImportService(BankRepository bankRepository, PacketRepository packetRepository,
-                                 SecurityAuditorAware securityAuditorAware, ContentQuotaGuard contentQuotaGuard) {
+                                 SecurityAuditorAware securityAuditorAware, ContentQuotaGuard contentQuotaGuard,
+                                 PacketReadPolicy packetReadPolicy) {
         this.bankRepository = bankRepository;
         this.packetRepository = packetRepository;
         this.securityAuditorAware = securityAuditorAware;
         this.contentQuotaGuard = contentQuotaGuard;
+        this.packetReadPolicy = packetReadPolicy;
     }
 
     /**
@@ -293,9 +289,22 @@ public class QbreaderImportService {
      * visibility. Never matches another caller's DRAFT (Q3-01): otherwise the "(2)"
      * suffix on the returned name would reveal that a private packet with that name
      * exists, to a caller who cannot see it through any read query.
+     *
+     * <p>With {@code sockbowl.auth.enabled=false} (Q4-01) every import is an ownerless
+     * DRAFT, so the owner-scoped search above would never match anything (there is no
+     * owner to match, and DRAFT is not publicly readable) and de-duplication would
+     * silently stop working. Auth off has no private-packet existence oracle to protect
+     * (there are no other callers to leak to), so it falls back to the pre-Q3-01,
+     * owner-blind {@link PacketRepository#searchListedByName}: every listed (non
+     * game-only) packet, regardless of owner.
      */
     private Packet findByExactName(String name, String ownerId) {
-        return packetRepository.searchVisibleByName(name, PUBLIC_VISIBILITIES, LEGACY_VISIBILITY, ownerId).stream()
+        List<Packet> candidates = packetReadPolicy.isAuthEnabled()
+                ? packetRepository.searchVisibleByName(name, packetReadPolicy.publiclyReadableVisibilities(),
+                        packetReadPolicy.legacyVisibility(), ownerId)
+                : packetRepository.searchListedByName(name, packetReadPolicy.unlistedVisibilities(),
+                        packetReadPolicy.legacyVisibility());
+        return candidates.stream()
                 .filter(p -> name.equalsIgnoreCase(p.getName()))
                 .findFirst().orElse(null);
     }
