@@ -32,6 +32,17 @@ public class QuotaProperties {
     /** TTL of the daily counters. */
     private Duration dailyTtl = Duration.ofHours(48);
 
+    /**
+     * FIX3-Q item 2: how long {@link ContentQuotaGuard#withPacketsOwnedSlot} spin-waits
+     * for a contended {@code packets-owned} lock before giving up with 429
+     * {@code rate_limited} (policy {@code packets-owned-lock}). Lowered from an earlier
+     * 5s: that pinned a servlet thread for up to 5s under contention. ~1.5s is enough
+     * for the lock to free up (it's only ever held across a fast save, never across an
+     * AI call — see {@link ContentQuotaGuard#withPacketsOwnedSlot}), while freeing
+     * threads back to the pool much sooner when it doesn't.
+     */
+    private Duration packetsOwnedLockSpinTimeout = Duration.ofMillis(1_500);
+
     private Map<Tier, Map<String, Long>> tiers = new EnumMap<>(Tier.class);
 
     /**

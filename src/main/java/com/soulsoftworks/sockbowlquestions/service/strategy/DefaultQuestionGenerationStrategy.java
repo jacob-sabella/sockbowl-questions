@@ -12,7 +12,6 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
-import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.service.ChatClientFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -32,7 +31,6 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
     private final ChatClientFactory chatClientFactory;
     private final AiPrompts aiPrompts;
-    private final PacketRepository packetRepository;
 
     /**
      * The server's own default chat model name (D13, M4-PV-01), used to stamp
@@ -44,11 +42,9 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
     public DefaultQuestionGenerationStrategy(
             ChatClientFactory chatClientFactory,
-            AiPrompts aiPrompts,
-            PacketRepository packetRepository) {
+            AiPrompts aiPrompts) {
         this.chatClientFactory = chatClientFactory;
         this.aiPrompts = aiPrompts;
-        this.packetRepository = packetRepository;
     }
 
     private record TossupPromptDTO(String question, String answer) {
@@ -156,7 +152,9 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 .source(ContentSource.AI_GENERATED)
                 .aiModel(resolveModel(requestContext))
                 .build();
-        packetRepository.save(packet);
+        // FIX3-Q: NOT saved here. The caller (QuestionGenerationService) persists
+        // it under the packets-owned lock, so that lock is held only around the
+        // fast save, never across this method's (possibly long) AI calls above.
 
         log.info("=== Packet Generation Complete ===");
         if (generateBonuses) {

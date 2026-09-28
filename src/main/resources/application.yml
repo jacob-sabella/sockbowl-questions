@@ -201,6 +201,10 @@ sockbowl:
   quota:
     enabled: "${SOCKBOWL_QUOTA_ENABLED:true}"
     daily-ttl: 48h
+    # FIX3-Q item 2: how long a contended packets-owned lock is spin-waited before
+    # giving up with 429 rate_limited (policy packets-owned-lock). Lowered from an
+    # earlier 5s, which pinned a servlet thread that long under contention.
+    packets-owned-lock-spin-timeout: "${SOCKBOWL_QUOTA_PACKETS_OWNED_LOCK_SPIN_TIMEOUT:1500ms}"
     # D10/D11 defaults; -1 = unlimited. Metric names with a dot need the
     # bracketed key. packets-owned is counted in Neo4j, the rest in Redis.
     tiers:
