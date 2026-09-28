@@ -4,15 +4,20 @@ import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.graphql.data.GraphQlRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Deliberately not a {@code @GraphQlRepository}: Spring for GraphQL would auto-register
+ * it (it is a {@code QueryByExampleExecutor}) as the data fetcher for any Packet-returning
+ * query without an explicit controller mapping, bypassing {@code PacketReadPolicy} and the
+ * answer-free projection. Every caller-facing read goes through {@code GraphQLController}
+ * ({@code NoAutoRegisteredGraphQlRepositoryTest} guards this).
+ */
 @Repository
-@GraphQlRepository
 public interface PacketRepository extends Neo4jRepository<Packet, String> {
     Packet getPacketById(String id);
 

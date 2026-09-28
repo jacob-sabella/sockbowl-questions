@@ -98,7 +98,7 @@ abstract class QuestionsRequestGuardITSupport extends Neo4jContainerTestBase {
         rateLimitRedis.sync().flushdb();
         Packet packet = Packet.builder().id(UUID.randomUUID().toString()).name("rl-packet").build();
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                any())).thenReturn(new QbreaderImportService.ImportOutcome(packet, List.of()));
+                any())).thenReturn(new QbreaderImportService.ImportOutcome(packet, List.of(), 0, 0));
         when(importService.countAvailable(any())).thenReturn(new QbreaderImportService.AvailableCount(1, 1));
         when(importService.categoryCounts()).thenReturn(Map.of("Science", 1));
         when(importService.taxonomyCounts()).thenReturn(Map.of());

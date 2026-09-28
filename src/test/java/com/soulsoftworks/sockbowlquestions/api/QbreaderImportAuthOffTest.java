@@ -46,7 +46,7 @@ class QbreaderImportAuthOffTest {
         Packet p = new Packet();
         p.setId("p");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                any())).thenReturn(new ImportOutcome(p, List.of()));
+                any())).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         mvc.perform(post("/api/qbreader/import-random").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"tossupCount\":99,\"bonusCount\":3}"))

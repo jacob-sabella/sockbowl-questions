@@ -50,7 +50,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         p.setId("rest-import-packet-anon");
         p.setName("Random");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of()));
+                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         client().post().uri("/api/qbreader/import-random")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -65,7 +65,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         p.setId("rest-import-packet-player");
         p.setName("Random");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of()));
+                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         client().post().uri("/api/qbreader/import-random")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenFor(PLAYER))
@@ -91,7 +91,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         p.setId("rest-import-packet");
         p.setName("Random");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                eq(PacketVisibility.defaultForNewPackets()))).thenReturn(new ImportOutcome(p, List.of()));
+                eq(PacketVisibility.defaultForNewPackets()))).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         client().post().uri("/api/qbreader/import-random")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenFor(AUTHOR))
@@ -121,6 +121,18 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
                 .exchange().expectStatus().isForbidden();
     }
 
+    /**
+     * Q2-02: the game backend's service token ({@code packet:read}/{@code packet:read-answers})
+     * has no {@code question:generate}, so it's a valid bearer but the wrong role: 403, not 401.
+     */
+    @Test
+    void generateServiceTokenIs403() {
+        client().post().uri("/api/packets/generate")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(GENERATE_BODY)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceToken())
+                .exchange().expectStatus().isForbidden();
+    }
+
     @Test
     void generateAuthorSucceeds() throws Exception {
         Packet p = new Packet();
@@ -136,6 +148,16 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
                 .header("X-Model", "test-model")
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.OK);
+    }
+
+    /* ------------------------------ actuator (Q-M2-06) ----------------------------- */
+
+    /** The compose healthcheck calls this without a token, so it must stay open with auth on. */
+    @Test
+    void actuatorHealthIsOpenToAnonymousWithAuthOn() {
+        client().get().uri("/actuator/health").exchange()
+                .expectStatus().isOk()
+                .expectBody().jsonPath("$.status").isEqualTo("UP");
     }
 
     /* ---------------------------- public bank aggregates -------------------------- */

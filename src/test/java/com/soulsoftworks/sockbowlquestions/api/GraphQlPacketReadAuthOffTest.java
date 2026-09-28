@@ -94,6 +94,19 @@ class GraphQlPacketReadAuthOffTest {
                 .andExpect(jsonPath("$.data.getPacketById.tossups[0].tossup.answer").value("A"));
     }
 
+    @Test
+    void anonymousStillSeesOwnerIdWithAuthOff() throws Exception {
+        // Q-M2-01 hides owner.id from callers who can't read the packet in full; with
+        // auth off everyone can, so self-hosted behavior is unchanged.
+        Packet published = packet("pub", PacketVisibility.PUBLISHED);
+        published.setOwnerDisplayName("Someone");
+        when(packetRepository.findById("pub")).thenReturn(Optional.of(published));
+
+        graphql("{ getPacketById(id: \"pub\") { owner { id name } } }")
+                .andExpect(jsonPath("$.data.getPacketById.owner.id").value("someone"))
+                .andExpect(jsonPath("$.data.getPacketById.owner.name").value("Someone"));
+    }
+
     private ResultActions graphql(String query) throws Exception {
         String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(java.util.Map.of("query", query));
         ResultActions actions = mvc.perform(post("/graphql").contentType(MediaType.APPLICATION_JSON).content(body));

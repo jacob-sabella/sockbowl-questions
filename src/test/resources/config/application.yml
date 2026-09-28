@@ -28,3 +28,12 @@ spring:
     redis:
       host: 127.0.0.1
       port: 1
+
+# With Redis deliberately unreachable above, Boot's auto-configured Redis health
+# contributor would report DOWN and turn /actuator/health into a 503 for every
+# test (RestEndpointsAuthIT's Q-M2-06 check asserts UP). Tests that start a Redis
+# Testcontainer are unaffected by this: they check limits, not health.
+management:
+  health:
+    redis:
+      enabled: false
