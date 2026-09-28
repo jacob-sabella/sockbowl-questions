@@ -103,14 +103,20 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
 
     /* -------------------------------- generate ---------------------------------- */
 
+    /** D11 (M4): generate is a POST with a JSON body. */
+    private static final String GENERATE_BODY = "{\"topic\":\"Science\"}";
+
     @Test
     void generateAnonymousIs401() {
-        client().get().uri("/api/packets/generate?topic=Science").exchange().expectStatus().isUnauthorized();
+        client().post().uri("/api/packets/generate")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(GENERATE_BODY)
+                .exchange().expectStatus().isUnauthorized();
     }
 
     @Test
     void generatePlayerIs403() {
-        client().get().uri("/api/packets/generate?topic=Science")
+        client().post().uri("/api/packets/generate")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(GENERATE_BODY)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenFor(PLAYER))
                 .exchange().expectStatus().isForbidden();
     }
@@ -123,7 +129,8 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         when(questionGenerationService.generatePacket(any(), any(), anyInt(), anyBoolean(), any(), any(), any()))
                 .thenReturn(p);
 
-        client().get().uri("/api/packets/generate?topic=Science")
+        client().post().uri("/api/packets/generate")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(GENERATE_BODY)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenFor(AUTHOR))
                 .header("X-API-Key", "test-key")
                 .header("X-Model", "test-model")

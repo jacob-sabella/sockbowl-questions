@@ -1,11 +1,13 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
 import com.google.gson.Gson;
+import com.soulsoftworks.sockbowlquestions.api.input.GeneratePacketRequest;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.AiProviderUnavailableException;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
+import com.soulsoftworks.sockbowlquestions.ratelimit.LimitException;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.service.QuestionGenerationService;
 import org.slf4j.Logger;
@@ -20,14 +22,12 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Controller for testing the Quizbowl packet generation functionality.
- * Provides endpoints to generate and validate quizbowl packets.
+ * REST endpoint for AI generation of whole quizbowl packets.
  */
 @RestController
 @RequestMapping("/api/packets")
 public class PacketGenerationController {
     private static final Logger logger = LoggerFactory.getLogger(PacketGenerationController.class);
-    private static final int MAX_QUESTION_COUNT = 30;
     private static final int MIN_QUESTION_COUNT = 1;
 
     private final QuestionGenerationService questionGenerationService;
@@ -44,27 +44,28 @@ public class PacketGenerationController {
     }
 
     /**
-     * Generates a complete quizbowl packet.
+     * Generates a complete quizbowl packet (D11: POST with a JSON body; a GET is 405).
      *
-     * @param topic Topic for the packet
-     * @param additionalContext Additional context or instructions
-     * @param questionCount Number of tossups/bonuses to generate (1-30, default from config)
-     * @param generateBonuses Whether to generate bonuses (default true)
+     * <p>The call runs inside an {@link com.soulsoftworks.sockbowlquestions.ai.AiGenerationGuard}
+     * permit (taken in {@link QuestionGenerationService#generatePacket}): 429
+     * {@code rate_limited} ({@code ai-generate}, {@code ai-concurrency}), 429
+     * {@code quota_exceeded} ({@code ai.generations}, {@code ai.serverkey}) and 503
+     * {@code limiter_unavailable} are rendered by {@code LimitsExceptionAdvice}.
+     *
+     * @param request topic, additionalContext, questionCount (1-30, default from config), generateBonuses
      * @param apiKey User-provided OpenAI API key (optional, from X-API-Key header)
      * @param model User-provided OpenAI model (optional, from X-Model header)
      * @param temperature Controls randomness (0.0-2.0, default 1.0)
      * @param topP Controls diversity via nucleus sampling (0.0-1.0, default 1.0)
      * @param frequencyPenalty Penalizes token frequency (-2.0 to 2.0, default 0.0)
      * @param presencePenalty Penalizes token presence (-2.0 to 2.0, default 0.0)
-     * @return ResponseEntity containing the generated packet as text
+     * @return the generated packet as JSON; 400 for invalid input, 502 when the AI
+     *         provider itself failed, 503 when no provider is configured
      */
-    @GetMapping(path = "generate", produces = MediaType.TEXT_PLAIN_VALUE)
+    @PostMapping(path = "generate")
     @PreAuthorize("hasAuthority('question:generate')")
     public ResponseEntity<String> generatePacket(
-            @RequestParam String topic,
-            @RequestParam(required = false) String additionalContext,
-            @RequestParam(required = false) Integer questionCount,
-            @RequestParam(required = false, defaultValue = "true") Boolean generateBonuses,
+            @RequestBody(required = false) GeneratePacketRequest request,
             @RequestHeader(value = "X-API-Key", required = false) String apiKey,
             @RequestHeader(value = "X-Model", required = false) String model,
             @RequestHeader(value = "X-Temperature", required = false) Double temperature,
@@ -78,8 +79,17 @@ public class PacketGenerationController {
         // auth is enabled; guest() only occurs when sockbowl.auth.enabled=false.
         AuthenticatedUser user = AuthenticatedUser.fromJwt(jwt);
 
+        if (request == null) {
+            throw new InvalidApiRequestException("A JSON body with at least a topic is required");
+        }
+        String topic = request.topic();
+        String additionalContext = request.additionalContext();
+        boolean generateBonuses = request.generateBonuses() == null || request.generateBonuses();
+        // Checked here too (not only in the service) so a bad request costs nothing.
+        questionGenerationService.validatePrompt(topic, additionalContext);
+
         // Validate and apply question count limits
-        Integer finalQuestionCount = validateQuestionCount(questionCount);
+        Integer finalQuestionCount = validateQuestionCount(request.questionCount());
 
         // Build request context from headers
         AiRequestContext.AiRequestContextBuilder contextBuilder = AiRequestContext.builder()
@@ -123,17 +133,52 @@ public class PacketGenerationController {
                     finalQuestionCount);
             logger.info(resultMessage);
 
-            return ResponseEntity.ok(new Gson().toJson(generatedPacket));
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new Gson().toJson(generatedPacket));
+        } catch (LimitException | InvalidApiRequestException e) {
+            // Rendered by LimitsExceptionAdvice / GlobalExceptionHandler.
+            throw e;
         } catch (AiProviderUnavailableException e) {
             logger.warn("Packet generation requested but no AI provider is available: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .contentType(MediaType.TEXT_PLAIN)
+                    .body(e.getMessage());
         } catch (Exception e) {
             // Log the detail server-side; return a generic message so internal
             // exception text (stack details, upstream API errors) isn't leaked.
             logger.error("Error generating packet", e);
+            if (isUpstreamProviderFailure(e)) {
+                // The provider (e.g. OpenAI answering 429 or 5xx) failed, not this
+                // server: a 502 lets the client tell the two apart.
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .body("The AI provider could not complete the request. Please try again later.");
+            }
             return ResponseEntity.internalServerError()
+                    .contentType(MediaType.TEXT_PLAIN)
                     .body("Error generating packet. Please try again or check the server logs.");
         }
+    }
+
+    /**
+     * Whether a failure came from the AI provider's API (the OpenAI SDK's
+     * {@code com.openai.errors.*} or Spring AI's retry exceptions) rather than
+     * from this service.
+     */
+    static boolean isUpstreamProviderFailure(Throwable e) {
+        Throwable current = e;
+        for (int depth = 0; current != null && depth < 10; depth++) {
+            String name = current.getClass().getName();
+            if (name.startsWith("com.openai.errors.") || name.startsWith("org.springframework.ai.retry.")) {
+                return true;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
@@ -151,14 +196,15 @@ public class PacketGenerationController {
         }
 
         // Validate bounds
+        int maxQuestionCount = securityProperties.getMaxQuestionCount();
         if (questionCount < MIN_QUESTION_COUNT) {
             throw new InvalidApiRequestException(
                     String.format("Question count must be at least %d", MIN_QUESTION_COUNT));
         }
 
-        if (questionCount > MAX_QUESTION_COUNT) {
+        if (questionCount > maxQuestionCount) {
             throw new InvalidApiRequestException(
-                    String.format("Question count cannot exceed %d (requested: %d)", MAX_QUESTION_COUNT, questionCount));
+                    String.format("Question count cannot exceed %d (requested: %d)", maxQuestionCount, questionCount));
         }
 
         logger.info("Using requested question count: {}", questionCount);
