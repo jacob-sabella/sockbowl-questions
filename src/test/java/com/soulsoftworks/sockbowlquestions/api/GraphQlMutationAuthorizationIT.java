@@ -37,7 +37,9 @@ import static org.mockito.Mockito.when;
  * {@link GraphQlPacketReadAuthTest} (Q1/Q2) already prove the classification mapping and
  * the D2 read/projection rules at the WebMvc-slice level with mocked JWTs and repositories.
  * This class is the end-to-end proof, over all 23 mutations, with tokens minted by a real
- * Keycloak and packets seeded in a real Neo4j.
+ * Keycloak and packets seeded in a real Neo4j. M3 Q6 adds the {@code expectedVersion}
+ * cases and the D4 taxonomy mapping ({@code taxonomy:manage} on moderator); the new M3
+ * operations are covered by {@link M3GraphQlAuthorizationTest}.
  */
 class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
 
@@ -211,9 +213,12 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
     /* --------------------------------- taxonomy ------------------------------------ */
 
     /**
-     * Taxonomy mutations aren't ownership-gated (D4's dedup/roles rework is M3's job);
-     * in M2 they require only {@code taxonomy:manage}, which the {@code author} and
-     * {@code admin} composites carry and {@code player}/{@code moderator} don't.
+     * Taxonomy mutations aren't ownership-gated; they require only {@code taxonomy:manage}.
+     * Since M3 (D4, mirrored from {@code sockbowl-docker/keycloak/rbac-model.json} into
+     * {@code keycloak/test-realm.json}) the {@code moderator} composite carries it, and
+     * {@code admin} through moderator; {@code player} and {@code author} don't. Authors
+     * only pick existing taxonomy. The M3 rename/merge mutations are covered by
+     * {@code M3GraphQlAuthorizationTest}.
      */
     @Test
     void taxonomyMutationsFollowTheCurrentRoleMapping() {
@@ -227,10 +232,48 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
             String doc = query.apply(null);
             assertClassification(graphQlTester(null).document(doc).execute(), "UNAUTHORIZED");
             assertClassification(graphQlTester(tokenFor(PLAYER)).document(doc).execute(), "FORBIDDEN");
-            assertClassification(graphQlTester(tokenFor(MODERATOR)).document(doc).execute(), "FORBIDDEN");
-            assertSucceeds(graphQlTester(tokenFor(AUTHOR)).document(query.apply(null)).execute());
+            assertClassification(graphQlTester(tokenFor(AUTHOR)).document(doc).execute(), "FORBIDDEN");
+            assertSucceeds(graphQlTester(tokenFor(MODERATOR)).document(query.apply(null)).execute());
             assertSucceeds(graphQlTester(tokenFor(ADMIN)).document(query.apply(null)).execute());
         }
+    }
+
+    /* ------------------------------ expectedVersion (M3) ------------------------------ */
+
+    /**
+     * M3 PB-18 with real tokens: {@code expectedVersion} is checked only after
+     * authorization, so a stale version never tells an unauthorized caller anything
+     * ({@code UNAUTHORIZED}/{@code FORBIDDEN}, never {@code CONFLICT}) and never bumps the
+     * version. The owner and {@code packet:manage-any} get {@code CONFLICT} for a stale
+     * version and succeed with the current one, on packet-level and node-level mutations.
+     */
+    @Test
+    void expectedVersionIsCheckedOnlyAfterAuthorization() {
+        Fixture f = seed(AUTHOR_SUB);
+        String staleRename = "mutation { renamePacket(id: \"" + f.packetId() + "\", name: \"" + uniqueName()
+                + "\", expectedVersion: 5) { id } }";
+        String staleTossup = "mutation { updateTossup(id: \"" + f.tossupId()
+                + "\", input: {question: \"Q2?\", answer: \"A2\"}, expectedVersion: 5) { id } }";
+
+        for (String stale : List.of(staleRename, staleTossup)) {
+            assertClassification(graphQlTester(null).document(stale).execute(), "UNAUTHORIZED");
+            assertClassification(graphQlTester(tokenFor(PLAYER)).document(stale).execute(), "FORBIDDEN");
+            assertClassification(graphQlTester(tokenFor(AUTHOR2)).document(stale).execute(), "FORBIDDEN");
+            assertClassification(graphQlTester(tokenFor(AUTHOR)).document(stale).execute(), "CONFLICT");
+            assertClassification(graphQlTester(tokenFor(ADMIN)).document(stale).execute(), "CONFLICT");
+        }
+        assertVersion(f.packetId(), 0L);
+
+        assertSucceeds(graphQlTester(tokenFor(AUTHOR)).document(staleRename.replace("expectedVersion: 5", "expectedVersion: 0")).execute());
+        assertVersion(f.packetId(), 1L);
+        assertSucceeds(graphQlTester(tokenFor(ADMIN)).document(staleTossup.replace("expectedVersion: 5", "expectedVersion: 1")).execute());
+        assertVersion(f.packetId(), 2L);
+    }
+
+    private void assertVersion(String packetId, long expected) {
+        Long version = neo4j.query("MATCH (p:Packet {id: $id}) RETURN coalesce(p.version, 0)")
+                .bind(packetId).to("id").fetchAs(Long.class).one().orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(version).isEqualTo(expected);
     }
 
     /* --------------------------------- helpers -------------------------------------- */
