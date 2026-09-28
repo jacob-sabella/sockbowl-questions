@@ -52,6 +52,8 @@ public class PacketImportService {
     /** Recorded as {@code createdVia} on every packet {@link #clonePacket} creates. */
     public static final String CREATED_VIA_CLONE = "CLONED";
 
+    private static final String COPY_SUFFIX = " (copy)";
+
     private final PlaintextPacketParser parser = new PlaintextPacketParser();
     private final PlaintextPacketFormatter formatter = new PlaintextPacketFormatter();
 
@@ -59,21 +61,28 @@ public class PacketImportService {
     private final PacketRepository packetRepository;
     private final PacketReadPolicy packetReadPolicy;
     private final PacketLimitsProperties limitsProperties;
+    private final PacketValidator validator;
 
     public PacketImportService(PacketImportRepository packetImportRepository,
                                PacketRepository packetRepository,
                                PacketReadPolicy packetReadPolicy,
-                               PacketLimitsProperties limitsProperties) {
+                               PacketLimitsProperties limitsProperties,
+                               PacketValidator validator) {
         this.packetImportRepository = packetImportRepository;
         this.packetRepository = packetRepository;
         this.packetReadPolicy = packetReadPolicy;
         this.limitsProperties = limitsProperties;
+        this.validator = validator;
     }
 
     /* --------------------------------------- import --------------------------------------- */
 
     @Transactional
     public ImportPacketResultDto importPacket(ImportPacketInput input, AuthenticatedUser user) {
+        // Q-M3V1-05: an explicit name gets the same name-max rule as createPacket/renamePacket;
+        // a suggested one was already shortened (with a WARNING) by the parser.
+        String explicitName = input.name() == null || input.name().isBlank()
+                ? null : validator.packetName(input.name());
         ParseResult parsed = parser.parse(input.text(), limitsFrom(limitsProperties));
         ParseResult resolved = resolveTaxonomy(parsed);
 
@@ -91,7 +100,7 @@ public class PacketImportService {
             return ImportPacketResultDto.refused(resolved);
         }
 
-        String name = firstNonBlank(input.name(), resolved.suggestedName(), "Imported packet");
+        String name = validator.packetName(firstNonBlank(explicitName, resolved.suggestedName(), "Imported packet"));
         List<Map<String, Object>> tossupRows = toTossupRows(resolved.tossups());
         List<Map<String, Object>> bonusRows = toBonusRows(resolved.bonuses());
 
@@ -110,14 +119,26 @@ public class PacketImportService {
 
         List<Map<String, Object>> tossupRows = cloneTossupRows(source);
         List<Map<String, Object>> bonusRows = cloneBonusRows(source);
-        String cloneName = firstNonBlank(name, null,
-                (source.getName() == null ? "Untitled packet" : source.getName()) + " (copy)");
+        String cloneName = name == null || name.isBlank()
+                ? defaultCloneName(source.getName())
+                : validator.packetName(name);
         String difficultyId = source.getDifficulty() != null ? source.getDifficulty().getId() : null;
 
         String newId = packetImportRepository.createImportedPacket(
                 cloneName, difficultyId, tossupRows, bonusRows,
                 user.keycloakId(), user.username(), PacketVisibility.DRAFT.name(), CREATED_VIA_CLONE);
         return loadCreated(newId);
+    }
+
+    /**
+     * {@code "<name> (copy)"}, with the source name shortened so the whole thing stays
+     * within name-max (Q-M3V1-05): a 200-char name must not become a 207-char clone.
+     */
+    private String defaultCloneName(String sourceName) {
+        String base = sourceName == null || sourceName.isBlank() ? "Untitled packet" : sourceName.trim();
+        int nameMax = limitsProperties.getLimits().getNameMax();
+        String truncated = PlaintextPacketParser.truncate(base, Math.max(1, nameMax - COPY_SUFFIX.length()));
+        return validator.packetName(truncated + COPY_SUFFIX);
     }
 
     /* --------------------------------------- export ---------------------------------------- */

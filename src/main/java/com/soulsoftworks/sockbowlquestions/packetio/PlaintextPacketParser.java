@@ -29,14 +29,29 @@ public class PlaintextPacketParser {
             Pattern.compile("^\\s*(TOSSUPS?|BONUSES?)\\s*:?\\s*$", Pattern.CASE_INSENSITIVE);
     private static final Pattern ITEM_START =
             Pattern.compile("^\\s*(?:(TOSSUP|BONUS)\\s+)?(\\d{1,3})[.)]\\s*(.*)$", Pattern.CASE_INSENSITIVE);
+    /**
+     * A tiebreaker item start: the keyword must end at a word boundary (a digit may follow
+     * directly, as in {@code TB1.}), and a {@code .}, {@code )} or {@code :} delimiter is
+     * mandatory, so hard-wrapped question lines that merely begin with "Tbilisi" or
+     * "extraordinary" stay question text (Q-M3V1-02). {@code (?![\p{L}_])} is used rather
+     * than {@code \b} because {@code \b} would reject {@code TB1.}.
+     */
     private static final Pattern TIEBREAKER =
-            Pattern.compile("^\\s*(?:TB|TIEBREAKER|EXTRA)\\s*(\\d*)[.):]?\\s*(.*)$", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("^\\s*(?:TB|TIEBREAKER|EXTRA)(?![\\p{L}_])\\s*(\\d*)\\s*[.):]\\s*(.*)$",
+                    Pattern.CASE_INSENSITIVE);
     private static final Pattern ANSWER =
             Pattern.compile("^\\s*ANSWER\\s*:\\s*(.*)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern PART =
             Pattern.compile("^\\s*\\[\\s*(\\d{1,2})\\s*([EMHemh])?\\s*]\\s*(.*)$");
     private static final Pattern TAG_TRAILING = Pattern.compile("<([^<>]*)>\\s*$");
     private static final Pattern TAG_ONLY_LINE = Pattern.compile("^\\s*<([^<>]*)>\\s*$");
+    /**
+     * Inline markup that may legitimately end an answer ({@code <b>Paris</b>}); D5 keeps it
+     * verbatim, so a trailing {@code <...>} that is a closing tag or one of these is never
+     * taken as the category tag (Q-M3V1-04).
+     */
+    private static final Pattern INLINE_MARKUP =
+            Pattern.compile("^\\s*(?:/.*|(?:b|u|i|em|strong)\\s*)$", Pattern.CASE_INSENSITIVE);
 
     private static final int EXPECTED_PARTS_PER_BONUS = 3;
 
@@ -115,7 +130,13 @@ public class PlaintextPacketParser {
         for (RawLine p : preface) {
             String trimmed = p.text().trim();
             if (suggestedName == null) {
-                suggestedName = trimmed;
+                suggestedName = truncate(trimmed, limits.nameMax());
+                if (suggestedName.length() < trimmed.length()) {
+                    // Q-M3V1-05: the preface line is otherwise bounded only by the import cap.
+                    issues.add(ParseIssue.warning(ParseIssue.NAME_TRUNCATED, p.lineNo(),
+                            "The packet name from line " + p.lineNo() + " was shortened to "
+                                    + limits.nameMax() + " characters"));
+                }
             }
             issues.add(ParseIssue.info(ParseIssue.PREFACE_IGNORED, p.lineNo(),
                     "Line ignored before the first item: \"" + trimmed + "\""));
@@ -348,7 +369,7 @@ public class PlaintextPacketParser {
         String tag = null;
 
         Matcher trailing = TAG_TRAILING.matcher(firstPart);
-        if (trailing.find()) {
+        if (trailing.find() && !isInlineMarkup(trailing.group(1))) {
             tag = trailing.group(1).trim();
             firstPart = firstPart.substring(0, trailing.start()).trim();
         }
@@ -360,13 +381,13 @@ public class PlaintextPacketParser {
                 break;
             }
             Matcher tagOnly = TAG_ONLY_LINE.matcher(text);
-            if (tagOnly.matches()) {
+            if (tagOnly.matches() && !isInlineMarkup(tagOnly.group(1))) {
                 tag = tagOnly.group(1).trim();
                 continue;
             }
             String content = text;
             Matcher trailingLine = TAG_TRAILING.matcher(content);
-            if (trailingLine.find()) {
+            if (trailingLine.find() && !isInlineMarkup(trailingLine.group(1))) {
                 tag = trailingLine.group(1).trim();
                 content = content.substring(0, trailingLine.start()).trim();
             }
@@ -379,6 +400,25 @@ public class PlaintextPacketParser {
             }
         }
         return new TagCapture(buf.toString(), tag);
+    }
+
+    /**
+     * At most {@code max} chars, never splitting a surrogate pair, with trailing whitespace
+     * trimmed. Shared by import and clone naming (Q-M3V1-05).
+     */
+    public static String truncate(String s, int max) {
+        if (s == null || s.length() <= max) {
+            return s;
+        }
+        int end = Math.max(0, max);
+        if (end > 0 && Character.isHighSurrogate(s.charAt(end - 1))) {
+            end--;
+        }
+        return s.substring(0, end).stripTrailing();
+    }
+
+    private static boolean isInlineMarkup(String tagContent) {
+        return INLINE_MARKUP.matcher(tagContent).matches();
     }
 
     private static String joinText(List<RawLine> lines) {

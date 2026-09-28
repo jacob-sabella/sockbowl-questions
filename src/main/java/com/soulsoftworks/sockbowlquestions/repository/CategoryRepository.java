@@ -18,12 +18,19 @@ public interface CategoryRepository extends Neo4jRepository<Category, String> {
     /**
      * Idempotent, case-insensitive create (D4): returns the existing node's id when one
      * already has this {@code nameKey}, otherwise creates it. The {@code MERGE} takes
-     * Neo4j's write lock, so concurrent creates of the same name never race.
+     * Neo4j's write lock, so concurrent creates of the same name never race. When legacy
+     * case-variant duplicates share the key (no constraint yet), the lowest id is returned
+     * and nothing is created (Q-M3V1-03).
      */
     @Query("""
-            MERGE (c:Category {nameKey: $nameKey})
-              ON CREATE SET c.id = randomUUID(), c.name = $name
-            RETURN c.id
+            OPTIONAL MATCH (c0:Category {nameKey: $nameKey})
+            WITH c0 ORDER BY c0.id LIMIT 1
+            FOREACH (_ IN CASE WHEN c0 IS NULL THEN [1] ELSE [] END |
+              MERGE (cn:Category {nameKey: $nameKey})
+                ON CREATE SET cn.id = randomUUID(), cn.name = $name)
+            WITH 1 AS resolved
+            MATCH (c:Category {nameKey: $nameKey})
+            RETURN c.id ORDER BY c.id LIMIT 1
             """)
     String mergeCreateByNameKey(@Param("nameKey") String nameKey, @Param("name") String name);
 

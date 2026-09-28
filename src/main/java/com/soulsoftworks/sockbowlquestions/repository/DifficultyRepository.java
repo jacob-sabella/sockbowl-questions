@@ -17,12 +17,18 @@ public interface DifficultyRepository extends Neo4jRepository<Difficulty, String
 
     /**
      * Idempotent, case-insensitive create (D4): returns the existing node's id when one
-     * already has this {@code nameKey}, otherwise creates it.
+     * already has this {@code nameKey}, otherwise creates it. Legacy case-variant
+     * duplicates (no constraint yet) resolve to the lowest id (Q-M3V1-03).
      */
     @Query("""
-            MERGE (d:Difficulty {nameKey: $nameKey})
-              ON CREATE SET d.id = randomUUID(), d.name = $name
-            RETURN d.id
+            OPTIONAL MATCH (d0:Difficulty {nameKey: $nameKey})
+            WITH d0 ORDER BY d0.id LIMIT 1
+            FOREACH (_ IN CASE WHEN d0 IS NULL THEN [1] ELSE [] END |
+              MERGE (dn:Difficulty {nameKey: $nameKey})
+                ON CREATE SET dn.id = randomUUID(), dn.name = $name)
+            WITH 1 AS resolved
+            MATCH (d:Difficulty {nameKey: $nameKey})
+            RETURN d.id ORDER BY d.id LIMIT 1
             """)
     String mergeCreateByNameKey(@Param("nameKey") String nameKey, @Param("name") String name);
 

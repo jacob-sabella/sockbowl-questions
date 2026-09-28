@@ -25,6 +25,8 @@ public record ParseIssue(IssueSeverity severity, String code, Integer line, Stri
     public static final String MORE_BONUSES_THAN_TOSSUPS = "MORE_BONUSES_THAN_TOSSUPS";
     public static final String UNKNOWN_CATEGORY_TAG = "UNKNOWN_CATEGORY_TAG";
     public static final String EMPTY_PREAMBLE = "EMPTY_PREAMBLE";
+    /** The suggested packet name (first preface line) was cut to {@code name-max}. */
+    public static final String NAME_TRUNCATED = "NAME_TRUNCATED";
 
     /* ------------------------------------------ info ----------------------------------------- */
     public static final String PART_VALUE_NOT_STORED = "PART_VALUE_NOT_STORED";

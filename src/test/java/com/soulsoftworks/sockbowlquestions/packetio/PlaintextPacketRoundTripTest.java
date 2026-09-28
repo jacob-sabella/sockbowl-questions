@@ -75,6 +75,66 @@ class PlaintextPacketRoundTripTest {
         assertRoundTrips(packet);
     }
 
+    /**
+     * Q-M3V1-04: multi-line fields (a builder textarea can store newlines) export on one
+     * line with internal whitespace collapsed, so a line that happens to look like an item
+     * start, answer or header can't split the item on re-import.
+     */
+    @Test
+    void multiLineFieldsExportCollapsedAndRoundTrip() {
+        Packet packet = Packet.builder().name("Multi\nline   name").build();
+        Tossup t1 = Tossup.builder().id("t1")
+                .question("Line one\n\nExtra credit: name it.\n2. Not an item.\nANSWER: not an answer")
+                .answer("First\n  answer").build();
+        packet.setTossups(List.of(ContainsTossup.builder().order(0).tossup(t1).build()));
+        Bonus bonus = Bonus.builder().id("b1").preamble("For ten points each:\nTOSSUPS\n")
+                .bonusParts(List.of(
+                        new HasBonusPart(0, BonusPart.builder().id("p1").question("Part\n[10] one?").answer("A\r\nB").build()),
+                        new HasBonusPart(1, BonusPart.builder().id("p2").question("Part two?").answer("C").build()),
+                        new HasBonusPart(2, BonusPart.builder().id("p3").question("Part three?").answer("D").build())))
+                .build();
+        packet.setBonuses(List.of(new ContainsBonus(0, bonus)));
+
+        ParseResult parsed = parser.parse(formatter.format(packet), GENEROUS);
+
+        assertThat(parsed.issues()).filteredOn(ParseIssue::isError).isEmpty();
+        assertThat(parsed.issues()).filteredOn(i -> i.severity() == IssueSeverity.WARNING).isEmpty();
+        assertThat(parsed.suggestedName()).isEqualTo("Multi line name");
+        assertThat(parsed.tossups()).hasSize(1);
+        assertThat(parsed.tossups().get(0).question())
+                .isEqualTo("Line one Extra credit: name it. 2. Not an item. ANSWER: not an answer");
+        assertThat(parsed.tossups().get(0).answer()).isEqualTo("First answer");
+        assertThat(parsed.bonuses()).hasSize(1);
+        assertThat(parsed.bonuses().get(0).preamble()).isEqualTo("For ten points each: TOSSUPS");
+        assertThat(parsed.bonuses().get(0).parts()).extracting(ParsedBonusPart::question)
+                .containsExactly("Part [10] one?", "Part two?", "Part three?");
+        assertThat(parsed.bonuses().get(0).parts()).extracting(ParsedBonusPart::answer)
+                .containsExactly("A B", "C", "D");
+    }
+
+    /** Q-M3V1-04: an answer ending in closing markup keeps it through export and re-import. */
+    @Test
+    void answersEndingInMarkupRoundTripWithAndWithoutASubcategory() {
+        Packet packet = Packet.builder().name("Markup Packet").build();
+        Category geo = Category.builder().id("cat-geo").name("Geography").build();
+        Subcategory europe = Subcategory.builder().id("sub-eu").name("Europe").category(geo).build();
+        Tossup t1 = Tossup.builder().id("t1").question("Name this city.").answer("<b>Paris</b>").build();
+        Tossup t2 = Tossup.builder().id("t2").question("Name this river.").answer("<u>Seine</u>")
+                .subcategory(europe).build();
+        packet.setTossups(List.of(
+                ContainsTossup.builder().order(0).tossup(t1).build(),
+                ContainsTossup.builder().order(1).tossup(t2).build()));
+        Bonus bonus = Bonus.builder().id("b1").preamble("For ten points each:")
+                .bonusParts(List.of(
+                        new HasBonusPart(0, BonusPart.builder().id("p1").question("One?").answer("<b>one</b>").build()),
+                        new HasBonusPart(1, BonusPart.builder().id("p2").question("Two?").answer("<i>two</i>").build()),
+                        new HasBonusPart(2, BonusPart.builder().id("p3").question("Three?").answer("<em>three</em>").build())))
+                .build();
+        packet.setBonuses(List.of(new ContainsBonus(0, bonus)));
+
+        assertRoundTrips(packet);
+    }
+
     /** The ACF fixture round-trips from the other direction: format(toPacket(parse(fixture))) reparses identically. */
     @Test
     void acfFixtureRoundTripsFromParsedFormBackThroughTheFormatter() {

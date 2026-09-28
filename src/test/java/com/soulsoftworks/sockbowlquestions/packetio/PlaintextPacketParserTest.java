@@ -294,6 +294,127 @@ class PlaintextPacketParserTest {
         assertThat(result.issues()).anyMatch(i -> i.code().equals(ParseIssue.TIEBREAKER_AS_TOSSUP));
     }
 
+    /**
+     * Q-M3V1-02: hard-wrapped continuation lines that merely start with the letters
+     * "Tb"/"Extra" (Tbilisi, extraordinary) are question text, not tiebreaker item starts.
+     */
+    @Test
+    void wrappedLinesStartingWithTbOrExtraAreNotTiebreakers() {
+        ParseResult result = parser.parse("""
+                TOSSUPS
+
+                1. This country's capital,
+                Tbilisi, sits on the Kura river, and its
+                extraordinary polyphonic singing is on a UNESCO list.
+                ANSWER: Georgia
+
+                2. Carl Sagan said that
+                extraordinary claims require extraordinary evidence;
+                Extradition treaties are not relevant here.
+                ANSWER: Sagan standard
+                """, GENEROUS);
+
+        assertThat(result.issues()).filteredOn(ParseIssue::isError).isEmpty();
+        assertThat(result.issues()).noneMatch(i -> i.code().equals(ParseIssue.TIEBREAKER_AS_TOSSUP));
+        assertThat(result.tossups()).hasSize(2);
+        assertThat(result.tossups().get(0).question()).isEqualTo(
+                "This country's capital, Tbilisi, sits on the Kura river, and its "
+                        + "extraordinary polyphonic singing is on a UNESCO list.");
+        assertThat(result.tossups().get(0).answer()).isEqualTo("Georgia");
+        assertThat(result.tossups().get(1).question()).isEqualTo(
+                "Carl Sagan said that extraordinary claims require extraordinary evidence; "
+                        + "Extradition treaties are not relevant here.");
+    }
+
+    /** Q-M3V1-02: every real tiebreaker marker still parses after the boundary fix. */
+    @Test
+    void tiebreakerMarkerVariantsStillParseAsTiebreakers() {
+        ParseResult result = parser.parse("""
+                TOSSUPS
+
+                TB. First tiebreaker.
+                ANSWER: one
+
+                TB1. Second tiebreaker.
+                ANSWER: two
+
+                Tiebreaker: Third tiebreaker.
+                ANSWER: three
+
+                Extra: Fourth tiebreaker.
+                ANSWER: four
+
+                EXTRA 2) Fifth tiebreaker.
+                ANSWER: five
+                """, GENEROUS);
+
+        assertThat(result.issues()).filteredOn(ParseIssue::isError).isEmpty();
+        assertThat(result.tossups()).extracting(ParsedTossup::question).containsExactly(
+                "First tiebreaker.", "Second tiebreaker.", "Third tiebreaker.",
+                "Fourth tiebreaker.", "Fifth tiebreaker.");
+        assertThat(result.tossups()).extracting(ParsedTossup::answer).containsExactly(
+                "one", "two", "three", "four", "five");
+        assertThat(result.issues()).filteredOn(i -> i.code().equals(ParseIssue.TIEBREAKER_AS_TOSSUP)).hasSize(5);
+    }
+
+    /**
+     * Q-M3V1-04: a trailing closing HTML tag (or a bare inline-markup tag) is answer
+     * markup kept verbatim (D5), not a category tag.
+     */
+    @Test
+    void trailingInlineMarkupIsNotACategoryTag() {
+        ParseResult result = parser.parse("""
+                TOSSUPS
+
+                1. Name this city.
+                ANSWER: <b>Paris</b>
+
+                2. Name this other city.
+                ANSWER: <u>Lyon</u> <Geography - Europe>
+
+                3. Name this river.
+                ANSWER: <b>Seine
+                </b>
+                """, GENEROUS);
+
+        assertThat(result.issues()).filteredOn(ParseIssue::isError).isEmpty();
+        assertThat(result.tossups()).hasSize(3);
+        assertThat(result.tossups().get(0).answer()).isEqualTo("<b>Paris</b>");
+        assertThat(result.tossups().get(0).categoryTag()).isNull();
+        assertThat(result.tossups().get(1).answer()).isEqualTo("<u>Lyon</u>");
+        assertThat(result.tossups().get(1).categoryTag()).isEqualTo("Geography - Europe");
+        assertThat(result.tossups().get(2).answer()).isEqualTo("<b>Seine </b>");
+        assertThat(result.tossups().get(2).categoryTag()).isNull();
+    }
+
+    /** Q-M3V1-05: a preface line longer than name-max is truncated with a WARNING. */
+    @Test
+    void overlongSuggestedNameIsTruncatedToNameMaxWithAWarning() {
+        String longName = "N".repeat(250);
+        ParseResult result = parser.parse(longName + """
+
+
+                TOSSUPS
+
+                1. Question?
+                ANSWER: answer
+                """, GENEROUS);
+
+        assertThat(result.suggestedName()).hasSize(200).isEqualTo("N".repeat(200));
+        assertThat(result.issues()).anyMatch(i -> i.code().equals(ParseIssue.NAME_TRUNCATED)
+                && i.severity() == IssueSeverity.WARNING && Integer.valueOf(1).equals(i.line()));
+        assertThat(result.tossups()).hasSize(1);
+    }
+
+    @Test
+    void suggestedNameAtNameMaxIsKeptWithoutAWarning() {
+        String name = "M".repeat(200);
+        ParseResult result = parser.parse(name + "\n\n1. Question?\nANSWER: answer\n", GENEROUS);
+
+        assertThat(result.suggestedName()).isEqualTo(name);
+        assertThat(result.issues()).noneMatch(i -> i.code().equals(ParseIssue.NAME_TRUNCATED));
+    }
+
     @Test
     void partValueNotStoredIsInfoForNonDefaultValues() {
         ParseResult result = parser.parse("""
