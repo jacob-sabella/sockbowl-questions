@@ -167,8 +167,10 @@ class SecurityConfigTest {
 
     @Test
     void generate_is_401_anonymous_and_403_without_question_generate() throws Exception {
-        mvc.perform(get("/api/packets/generate").param("topic", "x")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/packets/generate").param("topic", "x")
+        // D11 (M4): generate is a POST with a JSON body.
+        mvc.perform(post("/api/packets/generate").contentType(MediaType.APPLICATION_JSON).content("{\"topic\":\"x\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/packets/generate").contentType(MediaType.APPLICATION_JSON).content("{\"topic\":\"x\"}")
                         .with(jwt().authorities(new SimpleGrantedAuthority("packet:create"))))
                 .andExpect(status().isForbidden());
     }
