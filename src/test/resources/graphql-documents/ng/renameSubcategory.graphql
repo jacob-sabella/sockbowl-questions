@@ -1,0 +1,3 @@
+mutation ($id: ID!, $name: String!) {
+  renameSubcategory(id: $id, name: $name) { id name category { id name } }
+}

@@ -99,6 +99,51 @@ class PacketsOwnedQuotaIT extends ContentQuotaITSupport {
         assertThat(ownedPackets(sub)).isEqualTo(1);
     }
 
+    /* --------------------------- INT1: GraphQL importPacket/clonePacket --------------------------- */
+
+    @Test
+    void importPacketDryRunFalseCountsTowardAndIsBlockedByPacketsOwnedWithoutChargingImports() throws Exception {
+        String sub = nextSub("gqlImportOwned");
+        setOverride(sub, UsageKeys.PACKETS_OWNED, 1);
+
+        importPacketCommitOk(author(sub), PREFIX + "gql-first");
+        assertThat(ownedPackets(sub)).isEqualTo(1);
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isEqualTo("1");
+
+        assertGraphQlQuotaExceeded(importPacketCommit(author(sub), PREFIX + "gql-second"),
+                UsageKeys.PACKETS_OWNED, 1, 1);
+        // Rejected before the daily imports counter was charged (packets-owned is checked first).
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isEqualTo("1");
+        assertThat(ownedPackets(sub)).isEqualTo(1);
+    }
+
+    @Test
+    void importPacketDryRunTrueIsNeverBlockedByPacketsOwned() throws Exception {
+        String sub = nextSub("gqlDryRunOwned");
+        setOverride(sub, UsageKeys.PACKETS_OWNED, 0);
+
+        JsonObject response = importPacketDryRun(author(sub));
+        assertThat(response.has("errors")).as("errors: %s", response).isFalse();
+        assertThat(ownedPackets(sub)).isZero();
+    }
+
+    @Test
+    void clonePacketCountsTowardAndIsBlockedByPacketsOwned() throws Exception {
+        // Clones its own packet (packet:manage-any is a separate concern, covered by
+        // PacketImportCypherIT); what's under test here is only the packets-owned count.
+        String sub = nextSub("gqlCloneOwned");
+        setOverride(sub, UsageKeys.PACKETS_OWNED, 2);
+        String sourceId = createPacketOk(author(sub), PREFIX + "clone-src");
+        assertThat(ownedPackets(sub)).isEqualTo(1);
+
+        clonePacketOk(author(sub), sourceId, PREFIX + "clone-1");
+        assertThat(ownedPackets(sub)).isEqualTo(2);
+
+        assertGraphQlQuotaExceeded(clonePacket(author(sub), sourceId, PREFIX + "clone-2"),
+                UsageKeys.PACKETS_OWNED, 2, 2);
+        assertThat(ownedPackets(sub)).isEqualTo(2);
+    }
+
     @Test
     void generatingAPacketIsBlockedByPacketsOwnedBeforeAnyAiWork() throws Exception {
         String sub = nextSub("gen");

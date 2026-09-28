@@ -52,16 +52,13 @@ import java.util.function.Supplier;
  * <p>{@link #checkPacketsOwned} alone is a plain read-then-check: two
  * concurrent callers can both read the count below the limit and both then
  * create, overshooting it (Q-V1-01). {@link #withPacketsOwnedSlot} closes that
- * race for the three entry points that actually create an owned packet
- * ({@code createPacket}, an owned {@code import-random}, and
+ * race for every entry point that actually creates an owned packet
+ * ({@code createPacket}, an owned {@code import-random},
  * {@code POST /api/packets/generate}/{@code generateAndAddTossup}'s packet
- * creation): it serializes one owner's slot check-and-create behind a short
- * per-owner Redis lock, so the count it checks can never go stale before the
- * create it guards commits.
- *
- * <p>TODO(INT1): M3's {@code importPacket} and {@code clonePacket} mutations
- * (not yet merged into this branch) also create an owned packet and must be
- * wrapped with {@link #withPacketsOwnedSlot} the same way once they land.
+ * creation, and, since INT1, M3's {@code importPacket(dryRun: false)} and
+ * {@code clonePacket}): it serializes one owner's slot check-and-create behind
+ * a short per-owner Redis lock, so the count it checks can never go stale
+ * before the create it guards commits.
  */
 @Slf4j
 @Component

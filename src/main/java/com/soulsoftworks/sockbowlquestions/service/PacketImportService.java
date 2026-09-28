@@ -6,6 +6,7 @@ import com.soulsoftworks.sockbowlquestions.dto.ImportPacketResultDto;
 import com.soulsoftworks.sockbowlquestions.exception.ResourceNotFoundException;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Subcategory;
@@ -23,15 +24,17 @@ import com.soulsoftworks.sockbowlquestions.packetio.ParsedBonusPart;
 import com.soulsoftworks.sockbowlquestions.packetio.ParsedTossup;
 import com.soulsoftworks.sockbowlquestions.packetio.PlaintextPacketFormatter;
 import com.soulsoftworks.sockbowlquestions.packetio.PlaintextPacketParser;
+import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.repository.PacketImportRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.security.PacketReadPolicy;
+import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -62,22 +65,39 @@ public class PacketImportService {
     private final PacketReadPolicy packetReadPolicy;
     private final PacketLimitsProperties limitsProperties;
     private final PacketValidator validator;
+    private final ContentQuotaGuard contentQuotaGuard;
+    private final SecurityAuditorAware securityAuditorAware;
 
     public PacketImportService(PacketImportRepository packetImportRepository,
                                PacketRepository packetRepository,
                                PacketReadPolicy packetReadPolicy,
                                PacketLimitsProperties limitsProperties,
-                               PacketValidator validator) {
+                               PacketValidator validator,
+                               ContentQuotaGuard contentQuotaGuard,
+                               SecurityAuditorAware securityAuditorAware) {
         this.packetImportRepository = packetImportRepository;
         this.packetRepository = packetRepository;
         this.packetReadPolicy = packetReadPolicy;
         this.limitsProperties = limitsProperties;
         this.validator = validator;
+        this.contentQuotaGuard = contentQuotaGuard;
+        this.securityAuditorAware = securityAuditorAware;
     }
 
     /* --------------------------------------- import --------------------------------------- */
 
-    @Transactional
+    /**
+     * Deliberately <b>not</b> {@code @Transactional} (INT1, mirroring Q-V1-01 and
+     * {@code PacketAuthoringService#createPacket}): the actual create below runs inside
+     * {@link ContentQuotaGuard#withPacketsOwnedSlot}, which releases its per-owner Redis
+     * lock in a {@code finally} block. A method-level {@code @Transactional} here would
+     * keep the Neo4j write uncommitted until this method returns — after the lock is
+     * already released — letting a second concurrent caller acquire the freed lock and
+     * count this not-yet-committed packet away, overshooting {@code packets-owned}. The
+     * single {@code createImportedPacket} write is transactional on its own (a Spring
+     * Data repository method), which is what actually needs to commit before the lock
+     * is released, and does.
+     */
     public ImportPacketResultDto importPacket(ImportPacketInput input, AuthenticatedUser user) {
         // Q-M3V1-05: an explicit name gets the same name-max rule as createPacket/renamePacket;
         // a suggested one was already shortened (with a WARNING) by the parser.
@@ -87,6 +107,8 @@ public class PacketImportService {
         ParseResult resolved = resolveTaxonomy(parsed);
 
         if (input.isDryRun()) {
+            // INT1 / M4-UQ-01: a dry run writes nothing, so neither packets-owned nor
+            // imports is ever touched for it.
             return ImportPacketResultDto.preview(resolved);
         }
 
@@ -94,6 +116,7 @@ public class PacketImportService {
         if (hasErrors && !input.isSkipInvalid()) {
             // Refused, not thrown: the caller gets back the same preview so the UI can
             // show the issues and offer "skip invalid items" rather than a bare error.
+            // Nothing is created, so (like a dry run) no quota is touched.
             return ImportPacketResultDto.refused(resolved);
         }
         if (resolved.tossups().isEmpty()) {
@@ -104,16 +127,29 @@ public class PacketImportService {
         List<Map<String, Object>> tossupRows = toTossupRows(resolved.tossups());
         List<Map<String, Object>> bonusRows = toBonusRows(resolved.bonuses());
 
-        String id = packetImportRepository.createImportedPacket(
-                name, blankToNull(input.difficultyId()), tossupRows, bonusRows,
-                user.keycloakId(), user.username(), PacketVisibility.DRAFT.name(), CREATED_VIA_IMPORT);
-        Packet packet = loadCreated(id);
+        // INT1 / M4-UQ-01: a committed import counts toward the caller's packets-owned
+        // quota (serialized per owner, Q-V1-01) and today's imports counter (refunded if
+        // the write then fails); dryRun and refused returns above never reach here.
+        Packet packet = contentQuotaGuard.withPacketsOwnedSlot(user.keycloakId(), () -> {
+            ContentQuotaGuard.ImportCharge charge = contentQuotaGuard.chargeImport(user.keycloakId());
+            try {
+                String id = packetImportRepository.createImportedPacket(
+                        name, blankToNull(input.difficultyId()), tossupRows, bonusRows,
+                        user.keycloakId(), user.username(), PacketVisibility.DRAFT.name(), CREATED_VIA_IMPORT,
+                        ContentSource.TEXT_IMPORT.name(), securityAuditorAware.currentAuditorValue(),
+                        Instant.now().toString());
+                return loadCreated(id);
+            } catch (RuntimeException e) {
+                charge.refund();
+                throw e;
+            }
+        });
         return ImportPacketResultDto.committed(packet, resolved);
     }
 
     /* --------------------------------------- clone ----------------------------------------- */
 
-    @Transactional
+    /** Not {@code @Transactional}; see {@link #importPacket}'s Javadoc for why. */
     public Packet clonePacket(String id, String name, AuthenticatedUser user) {
         Packet source = requireReadableFull(id);
 
@@ -124,10 +160,17 @@ public class PacketImportService {
                 : validator.packetName(name);
         String difficultyId = source.getDifficulty() != null ? source.getDifficulty().getId() : null;
 
-        String newId = packetImportRepository.createImportedPacket(
-                cloneName, difficultyId, tossupRows, bonusRows,
-                user.keycloakId(), user.username(), PacketVisibility.DRAFT.name(), CREATED_VIA_CLONE);
-        return loadCreated(newId);
+        // INT1 / M4-UQ-01: a clone counts toward packets-owned like any other owned
+        // create (serialized per owner, Q-V1-01), but never charges the imports quota
+        // (it isn't an import).
+        return contentQuotaGuard.withPacketsOwnedSlot(user.keycloakId(), () -> {
+            String newId = packetImportRepository.createImportedPacket(
+                    cloneName, difficultyId, tossupRows, bonusRows,
+                    user.keycloakId(), user.username(), PacketVisibility.DRAFT.name(), CREATED_VIA_CLONE,
+                    ContentSource.CLONED.name(), securityAuditorAware.currentAuditorValue(),
+                    Instant.now().toString());
+            return loadCreated(newId);
+        });
     }
 
     /**

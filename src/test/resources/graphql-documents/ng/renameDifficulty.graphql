@@ -1,0 +1,3 @@
+mutation ($id: ID!, $name: String!) {
+  renameDifficulty(id: $id, name: $name) { id name }
+}

@@ -3,6 +3,7 @@ package com.soulsoftworks.sockbowlquestions.service;
 import com.soulsoftworks.sockbowlquestions.api.input.ImportPacketInput;
 import com.soulsoftworks.sockbowlquestions.dto.ImportPacketResultDto;
 import com.soulsoftworks.sockbowlquestions.exception.ResourceNotFoundException;
+import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
 import com.soulsoftworks.sockbowlquestions.repository.CategoryRepository;
@@ -180,10 +181,31 @@ class PacketImportCypherIT extends Neo4jContainerTestBase {
         assertThat(loaded.getOwnerId()).isEqualTo("pic-author");
         assertThat(loaded.getOwnerDisplayName()).isEqualTo("Pic Author");
 
+        // INT1: the raw-Cypher create path (PacketImportRepository#createImportedPacket) stamps
+        // source and the audit fields explicitly, since it bypasses SDN's save pipeline.
+        assertThat(loaded.getSource()).isEqualTo(ContentSource.TEXT_IMPORT);
+        assertThat(loaded.getCreatedBy()).isEqualTo("pic-author");
+        assertThat(loaded.getCreatedAt()).isNotNull();
+        assertThat(loaded.getLastModifiedBy()).isEqualTo("pic-author");
+        assertThat(loaded.getLastModifiedAt()).isNotNull();
+
         assertThat(loaded.getTossups()).hasSize(3);
         assertThat(loaded.getTossups()).extracting(t -> t.getOrder()).containsExactlyInAnyOrder(0, 1, 2);
+        assertThat(loaded.getTossups()).allSatisfy(t -> {
+            assertThat(t.getTossup().getSource()).isEqualTo(ContentSource.TEXT_IMPORT);
+            assertThat(t.getTossup().getCreatedBy()).isEqualTo("pic-author");
+            assertThat(t.getTossup().getCreatedAt()).isNotNull();
+            assertThat(t.getTossup().getLastModifiedBy()).isEqualTo("pic-author");
+            assertThat(t.getTossup().getLastModifiedAt()).isNotNull();
+        });
         assertThat(loaded.getBonuses()).hasSize(1);
+        assertThat(loaded.getBonuses().get(0).getBonus().getSource()).isEqualTo(ContentSource.TEXT_IMPORT);
+        assertThat(loaded.getBonuses().get(0).getBonus().getCreatedBy()).isEqualTo("pic-author");
         assertThat(loaded.getBonuses().get(0).getBonus().getBonusParts()).hasSize(3);
+        assertThat(loaded.getBonuses().get(0).getBonus().getBonusParts()).allSatisfy(p -> {
+            assertThat(p.getBonusPart().getSource()).isEqualTo(ContentSource.TEXT_IMPORT);
+            assertThat(p.getBonusPart().getCreatedBy()).isEqualTo("pic-author");
+        });
 
         // Node-only properties not mapped on the Packet entity (M4's territory): version and createdVia.
         Map<String, Object> raw = neo4j.query("MATCH (p:Packet {id: $id}) RETURN p.version AS version, p.createdVia AS createdVia")
@@ -236,12 +258,29 @@ class PacketImportCypherIT extends Neo4jContainerTestBase {
         assertThat(clone.getOwnerId()).isEqualTo("pic-owner");
         assertThat(clone.getVisibility()).isEqualTo(PacketVisibility.DRAFT);
 
+        // INT1: source=CLONED and the audit fields, stamped explicitly by the same raw-Cypher
+        // create path as a text import (createImportedPacket takes the source as a parameter).
+        assertThat(clone.getSource()).isEqualTo(ContentSource.CLONED);
+        assertThat(clone.getCreatedBy()).isEqualTo("pic-owner");
+        assertThat(clone.getCreatedAt()).isNotNull();
+        assertThat(clone.getLastModifiedBy()).isEqualTo("pic-owner");
+        assertThat(clone.getLastModifiedAt()).isNotNull();
+
         Packet reloadedClone = packetRepository.findById(clone.getId()).orElseThrow();
         String cloneTossupId = reloadedClone.getTossups().get(0).getTossup().getId();
         String sourceTossupId = sourceId + "-t1";
         assertThat(cloneTossupId).isNotEqualTo(sourceTossupId);
         assertThat(reloadedClone.getTossups().get(0).getTossup().getQuestion()).isEqualTo("Source question?");
         assertThat(reloadedClone.getTossups().get(0).getTossup().getAnswer()).isEqualTo("Source answer");
+        assertThat(reloadedClone.getTossups().get(0).getTossup().getSource()).isEqualTo(ContentSource.CLONED);
+        assertThat(reloadedClone.getTossups().get(0).getTossup().getCreatedBy()).isEqualTo("pic-owner");
+        // The source packet, seeded directly via Cypher with no source/audit properties at all,
+        // must be untouched by the clone (an independent copy, not a shared/re-tagged node).
+        Map<String, Object> sourceRaw = neo4j.query(
+                        "MATCH (t:Tossup {id: $id}) RETURN t.source AS source, t.createdBy AS createdBy")
+                .bind(sourceTossupId).to("id").fetch().one().orElseThrow();
+        assertThat(sourceRaw.get("source")).isNull();
+        assertThat(sourceRaw.get("createdBy")).isNull();
 
         // Editing the clone must not touch the source.
         neo4j.query("MATCH (t:Tossup {id: $id}) SET t.answer = 'EDITED'").bind(cloneTossupId).to("id").run();

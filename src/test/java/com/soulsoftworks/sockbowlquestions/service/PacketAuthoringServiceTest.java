@@ -31,6 +31,7 @@ import com.soulsoftworks.sockbowlquestions.repository.DifficultyRepository;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
 import com.soulsoftworks.sockbowlquestions.repository.SubcategoryRepository;
 import com.soulsoftworks.sockbowlquestions.repository.TossupRepository;
+import com.soulsoftworks.sockbowlquestions.security.SecurityAuditorAware;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -69,6 +70,7 @@ class PacketAuthoringServiceTest {
     @Mock private SubcategoryRepository subcategoryRepository;
     @Mock private QuestionGenerationService questionGenerationService;
     @Mock private ContentQuotaGuard contentQuotaGuard;
+    @Mock private SecurityAuditorAware securityAuditorAware;
 
     private AiSecurityProperties aiSecurityProperties;
     private PacketLimitsProperties limits;
@@ -81,9 +83,9 @@ class PacketAuthoringServiceTest {
         service = new PacketAuthoringService(packetRepository, tossupRepository, bonusRepository,
                 bonusPartRepository, difficultyRepository, subcategoryRepository,
                 questionGenerationService, aiSecurityProperties, contentQuotaGuard,
-                new PacketValidator(limits));
+                new PacketValidator(limits), securityAuditorAware);
         // The version bump (PB-18) succeeds unless a test says otherwise.
-        lenient().when(packetRepository.bumpVersion(anyString(), any())).thenReturn(1L);
+        lenient().when(packetRepository.bumpVersion(anyString(), any(), any(), any())).thenReturn(1L);
         // Most paths save then return the saved entity; echo the argument back.
         lenient().when(packetRepository.save(any(Packet.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(bonusRepository.save(any(Bonus.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -568,7 +570,7 @@ class PacketAuthoringServiceTest {
         assertThatThrownBy(() -> service.renamePacket("p", chars(201), null))
                 .isInstanceOfSatisfying(ValidationFailedException.class,
                         e -> assertThat(e.getField()).isEqualTo("name"));
-        verify(packetRepository, never()).bumpVersion(anyString(), any());
+        verify(packetRepository, never()).bumpVersion(anyString(), any(), any(), any());
         verify(packetRepository, never()).save(any());
     }
 
@@ -685,7 +687,7 @@ class PacketAuthoringServiceTest {
                 .isInstanceOfSatisfying(ValidationFailedException.class,
                         e -> assertThat(e.getField()).isEqualTo("parts"))
                 .hasMessage("A bonus needs at least one part");
-        verify(packetRepository, never()).bumpVersion(anyString(), any());
+        verify(packetRepository, never()).bumpVersion(anyString(), any(), any(), any());
         verify(packetRepository, never()).save(any());
     }
 
@@ -802,7 +804,7 @@ class PacketAuthoringServiceTest {
 
     @Test
     void expectedVersionMismatch_throwsConflictWithCurrentVersion() {
-        when(packetRepository.bumpVersion("p", 3L)).thenReturn(null);
+        when(packetRepository.bumpVersion(eq("p"), eq(3L), any(), any())).thenReturn(null);
         when(packetRepository.currentVersion("p")).thenReturn(Optional.of(5L));
 
         assertThatThrownBy(() -> service.renamePacket("p", "New", 3))
@@ -817,7 +819,7 @@ class PacketAuthoringServiceTest {
 
     @Test
     void bumpOnMissingPacket_throwsNotFound() {
-        when(packetRepository.bumpVersion("gone", 1L)).thenReturn(null);
+        when(packetRepository.bumpVersion(eq("gone"), eq(1L), any(), any())).thenReturn(null);
         when(packetRepository.currentVersion("gone")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.reorderTossup("gone", "t1", 0, 1))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -830,7 +832,7 @@ class PacketAuthoringServiceTest {
 
         service.renamePacket("p", "New", null);
 
-        verify(packetRepository).bumpVersion(eq("p"), isNull());
+        verify(packetRepository).bumpVersion(eq("p"), isNull(), any(), any());
         verify(packetRepository, never()).currentVersion(anyString());
     }
 
@@ -842,7 +844,7 @@ class PacketAuthoringServiceTest {
         service.addTossupToPacket("p", new TossupInput("Q", "A", null), null, 7);
 
         InOrder order = inOrder(packetRepository);
-        order.verify(packetRepository).bumpVersion("p", 7L);
+        order.verify(packetRepository).bumpVersion(eq("p"), eq(7L), any(), any());
         order.verify(packetRepository).findById("p");
         order.verify(packetRepository).save(packet);
     }
@@ -873,7 +875,7 @@ class PacketAuthoringServiceTest {
         service.removeBonusFromPacket("p", "b2", 0);
         service.deletePacket("p", 0);
 
-        verify(packetRepository, times(10)).bumpVersion("p", 0L);
+        verify(packetRepository, times(10)).bumpVersion(eq("p"), eq(0L), any(), any());
     }
 
     @Test
@@ -897,13 +899,13 @@ class PacketAuthoringServiceTest {
         service.reorderBonusPart("b1", "bp2", 0, 4);
         service.removeBonusPart("b1", "bp1", 4);
 
-        verify(packetRepository, times(8)).bumpVersion("p", 4L);
+        verify(packetRepository, times(8)).bumpVersion(eq("p"), eq(4L), any(), any());
     }
 
     @Test
     void nodeLevelMutation_staleVersion_leavesTheNodeUntouched() {
         when(packetRepository.findPacketIdByTossupId("t1")).thenReturn(Optional.of("p"));
-        when(packetRepository.bumpVersion("p", 1L)).thenReturn(null);
+        when(packetRepository.bumpVersion(eq("p"), eq(1L), any(), any())).thenReturn(null);
         when(packetRepository.currentVersion("p")).thenReturn(Optional.of(2L));
 
         assertThatThrownBy(() -> service.updateTossup("t1", new TossupInput("Q", "A", null), 1))
@@ -917,7 +919,7 @@ class PacketAuthoringServiceTest {
         Tossup t = tossup("orphan", "Q");
         when(tossupRepository.findById("orphan")).thenReturn(Optional.of(t));
         service.updateTossup("orphan", new TossupInput("Q", "A", null), 9);
-        verify(packetRepository, never()).bumpVersion(anyString(), any());
+        verify(packetRepository, never()).bumpVersion(anyString(), any(), any(), any());
     }
 
     @Test
@@ -929,13 +931,13 @@ class PacketAuthoringServiceTest {
         service.setPacketVisibility("p1", PacketVisibility.PUBLISHED, 2);
 
         InOrder order = inOrder(packetRepository);
-        order.verify(packetRepository).bumpVersion("p1", 2L);
+        order.verify(packetRepository).bumpVersion(eq("p1"), eq(2L), any(), any());
         order.verify(packetRepository).findById("p1");
     }
 
     @Test
     void setPacketVisibility_staleExpectedVersion_isRejected() {
-        when(packetRepository.bumpVersion("p1", 2L)).thenReturn(null);
+        when(packetRepository.bumpVersion(eq("p1"), eq(2L), any(), any())).thenReturn(null);
         when(packetRepository.currentVersion("p1")).thenReturn(Optional.of(3L));
 
         assertThatThrownBy(() -> service.setPacketVisibility("p1", PacketVisibility.PUBLISHED, 2))
@@ -946,7 +948,7 @@ class PacketAuthoringServiceTest {
     @Test
     void deletePacket_staleExpectedVersion_doesNotDelete() {
         when(packetRepository.existsById("p")).thenReturn(true);
-        when(packetRepository.bumpVersion("p", 0L)).thenReturn(null);
+        when(packetRepository.bumpVersion(eq("p"), eq(0L), any(), any())).thenReturn(null);
         when(packetRepository.currentVersion("p")).thenReturn(Optional.of(4L));
 
         assertThatThrownBy(() -> service.deletePacket("p", 0))

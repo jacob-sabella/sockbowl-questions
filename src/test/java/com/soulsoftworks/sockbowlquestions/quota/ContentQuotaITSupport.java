@@ -32,6 +32,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -178,8 +179,16 @@ abstract class ContentQuotaITSupport extends Neo4jContainerTestBase {
     }
 
     JsonObject graphQl(RequestPostProcessor caller, String query) throws Exception {
+        return graphQl(caller, query, null);
+    }
+
+    /** As above, with GraphQL {@code variables} (INT1: for {@code importPacket}'s free-text body). */
+    JsonObject graphQl(RequestPostProcessor caller, String query, Map<String, Object> variables) throws Exception {
         JsonObject body = new JsonObject();
         body.addProperty("query", query);
+        if (variables != null) {
+            body.add("variables", gson.toJsonTree(variables));
+        }
         MvcResult result = mvc.perform(post(GRAPHQL).with(caller)
                 .contentType(MediaType.APPLICATION_JSON).content(body.toString())).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -195,6 +204,49 @@ abstract class ContentQuotaITSupport extends Neo4jContainerTestBase {
         JsonObject response = createPacket(caller, name);
         assertThat(response.has("errors")).as("errors: %s", response).isFalse();
         return response.getAsJsonObject("data").getAsJsonObject("createPacket").get("id").getAsString();
+    }
+
+    /** Minimal, always-valid ACF/NAQT plaintext (D5): one tossup, no bonuses. */
+    static final String ONE_TOSSUP_TEXT = "TOSSUPS\n\n1. A perfectly fine question with an answer.\nANSWER: fine\n";
+
+    /** {@code importPacket(dryRun: false)}: commits a new owned DRAFT (INT1). */
+    JsonObject importPacketCommit(RequestPostProcessor caller, String name) throws Exception {
+        String query = "mutation($text: String!, $name: String!) { "
+                + "importPacket(input: {text: $text, name: $name, dryRun: false}) "
+                + "{ committed packet { id } } }";
+        return graphQl(caller, query, Map.of("text", ONE_TOSSUP_TEXT, "name", name));
+    }
+
+    /** {@code importPacket(dryRun: true)} (the default): a preview that must never be charged (INT1). */
+    JsonObject importPacketDryRun(RequestPostProcessor caller) throws Exception {
+        String query = "mutation($text: String!) { importPacket(input: {text: $text, dryRun: true}) "
+                + "{ committed packet { id } } }";
+        return graphQl(caller, query, Map.of("text", ONE_TOSSUP_TEXT));
+    }
+
+    /** {@code clonePacket}: an independent owned DRAFT copy (INT1); charges packets-owned, never imports. */
+    JsonObject clonePacket(RequestPostProcessor caller, String id, String name) throws Exception {
+        String query = "mutation($id: ID!, $name: String) { clonePacket(id: $id, name: $name) { id } }";
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("id", id);
+        variables.put("name", name);
+        return graphQl(caller, query, variables);
+    }
+
+    /** The committed packet's id from {@link #importPacketCommit}; fails the test on errors or a refusal. */
+    String importPacketCommitOk(RequestPostProcessor caller, String name) throws Exception {
+        JsonObject response = importPacketCommit(caller, name);
+        assertThat(response.has("errors")).as("errors: %s", response).isFalse();
+        JsonObject imported = response.getAsJsonObject("data").getAsJsonObject("importPacket");
+        assertThat(imported.get("committed").getAsBoolean()).as("committed: %s", response).isTrue();
+        return imported.getAsJsonObject("packet").get("id").getAsString();
+    }
+
+    /** The clone's id from {@link #clonePacket}; fails the test when the mutation returned errors. */
+    String clonePacketOk(RequestPostProcessor caller, String id, String name) throws Exception {
+        JsonObject response = clonePacket(caller, id, name);
+        assertThat(response.has("errors")).as("errors: %s", response).isFalse();
+        return response.getAsJsonObject("data").getAsJsonObject("clonePacket").get("id").getAsString();
     }
 
     JsonObject json(MvcResult result) throws Exception {
@@ -250,8 +302,14 @@ abstract class ContentQuotaITSupport extends Neo4jContainerTestBase {
         }
     }
 
-    /** A GraphQL QUOTA_EXCEEDED field error; {@code resetsAt} null for owned metrics. */
+    /** A GraphQL QUOTA_EXCEEDED field error for an owned metric ({@code resetsAt} always null). */
     static void assertGraphQlQuotaExceeded(JsonObject response, String metric, long limit, long used) {
+        assertGraphQlQuotaExceeded(response, metric, limit, used, null);
+    }
+
+    /** As above, for a daily metric (INT1: {@code imports}, via {@code importPacket}), whose {@code resetsAt} is set. */
+    static void assertGraphQlQuotaExceeded(JsonObject response, String metric, long limit, long used,
+                                           Instant resetsAt) {
         assertThat(response.getAsJsonArray("errors")).as("response: %s", response).hasSize(1);
         JsonObject extensions = response.getAsJsonArray("errors").get(0).getAsJsonObject()
                 .getAsJsonObject("extensions");
@@ -260,6 +318,10 @@ abstract class ContentQuotaITSupport extends Neo4jContainerTestBase {
         assertThat(extensions.get("metric").getAsString()).isEqualTo(metric);
         assertThat(extensions.get("limit").getAsLong()).isEqualTo(limit);
         assertThat(extensions.get("used").getAsLong()).isEqualTo(used);
-        assertThat(extensions.get("resetsAt").isJsonNull()).isTrue();
+        if (resetsAt == null) {
+            assertThat(extensions.get("resetsAt").isJsonNull()).isTrue();
+        } else {
+            assertThat(extensions.get("resetsAt").getAsString()).isEqualTo(resetsAt.toString());
+        }
     }
 }

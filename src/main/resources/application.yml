@@ -209,6 +209,12 @@ sockbowl:
       default-mutation-policy: graphql-write
       fields:
         generateAndAddTossup: graphql-write
+        # INT1: importPacket(dryRun:false) is charged the same daily imports
+        # policy as the REST qbreader import (ContentQuotaGuard.chargeImport
+        # is the actual quota charge; this is only the per-minute abuse cap).
+        # dryRun previews and clonePacket stay on the default graphql-write cap.
+        importPacket: import
+        clonePacket: graphql-write
       # Static caps (WP-Q2). max-complexity is 2x the largest ng/game document
       # (game PacketClient getPacketById = 41; see GraphQlLimitsConfig). INT1
       # re-measures with M3's documents.

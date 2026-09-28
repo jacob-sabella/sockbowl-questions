@@ -1,5 +1,6 @@
 package com.soulsoftworks.sockbowlquestions.quota;
 
+import com.google.gson.JsonObject;
 import com.soulsoftworks.sockbowlquestions.ratelimit.UsageKeys;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -95,5 +96,58 @@ class ImportQuotaIT extends ContentQuotaITSupport {
         assertThat(dailyCounter(player, UsageKeys.IMPORTS)).isNull();
         assertThat(redis.sync().keys("usage:*")).isEmpty();
         assertThat(ownedPackets(player)).isZero();
+    }
+
+    /* --------------------------- INT1: GraphQL importPacket/clonePacket --------------------------- */
+
+    @Test
+    void importPacketDryRunFalseChargesTheDailyImportsCounterTheSameAsImportRandom() throws Exception {
+        String sub = nextSub("gqlImport");
+        for (int i = 1; i <= 10; i++) {
+            importPacketCommitOk(author(sub), PREFIX + "gql-" + i);
+        }
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isEqualTo("10");
+
+        JsonObject eleventh = importPacketCommit(author(sub), PREFIX + "gql-11");
+        assertGraphQlQuotaExceeded(eleventh, UsageKeys.IMPORTS, 10, 10, nextUtcMidnight());
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isEqualTo("10");
+        assertThat(ownedPackets(sub)).isEqualTo(10);
+
+        // Next UTC day: a fresh counter, same as the REST import.
+        CLOCK.set(nextUtcMidnight().plusSeconds(1));
+        importPacketCommitOk(author(sub), PREFIX + "gql-next-day");
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isEqualTo("1");
+    }
+
+    @Test
+    void importPacketDryRunIsNeverChargedRegardlessOfHowManyTimesItIsCalled() throws Exception {
+        String sub = nextSub("gqlDryRun");
+        setOverride(sub, UsageKeys.IMPORTS, 1);
+        for (int i = 0; i < 15; i++) {
+            JsonObject response = importPacketDryRun(author(sub));
+            assertThat(response.has("errors")).as("errors: %s", response).isFalse();
+            assertThat(response.getAsJsonObject("data").getAsJsonObject("importPacket")
+                    .get("committed").getAsBoolean()).as("a dry run never commits").isFalse();
+        }
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isNull();
+        assertThat(ownedPackets(sub)).isZero();
+
+        // The daily limit of 1 set above is still fully available: nothing above touched it.
+        importPacketCommitOk(author(sub), PREFIX + "gql-after-dry-runs");
+        assertGraphQlQuotaExceeded(importPacketCommit(author(sub), PREFIX + "gql-second"),
+                UsageKeys.IMPORTS, 1, 1, nextUtcMidnight());
+    }
+
+    @Test
+    void clonePacketNeverChargesTheDailyImportsCounter() throws Exception {
+        String sub = nextSub("gqlClone");
+        setOverride(sub, UsageKeys.IMPORTS, 0);
+        String sourceId = createPacketOk(author(sub), PREFIX + "clone-source");
+
+        for (int i = 0; i < 5; i++) {
+            clonePacketOk(author(sub), sourceId, PREFIX + "clone-" + i);
+        }
+
+        assertThat(dailyCounter(sub, UsageKeys.IMPORTS)).isNull();
     }
 }
