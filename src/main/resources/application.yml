@@ -270,6 +270,11 @@ spring:
       host: "${SOCKBOWL_REDIS_HOST:localhost}"
       port: "${SOCKBOWL_REDIS_PORT:6379}"
       database: "${SOCKBOWL_DATABASE:0}"
+      # DK-3: prod Redis runs requirepass/ACL behind no published port. Blank
+      # (the default) keeps today's no-auth dev/compose Redis working
+      # unchanged; RateLimitRedisConfig reads this same key and only calls
+      # RedisURI's withPassword when it is non-blank (RateLimitRedis).
+      password: "${SOCKBOWL_REDIS_PASSWORD:}"
   graphql:
     schema:
       # Logs a report of schema fields without a data fetcher at startup. During M3
