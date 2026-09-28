@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts setTossupSubcategory() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($tossupId: ID!, $subcategoryId: ID!) {
+  setTossupSubcategory(tossupId: $tossupId, subcategoryId: $subcategoryId) { id }
+}

@@ -1,0 +1,57 @@
+# sockbowl-game src/main/java/com/soulsoftworks/sockbowlgame/client/PacketClient.java QUERY (goal/m4-limits, copied for WP-Q2, only re-indented)
+query($id: ID!) {
+  getPacketById(id: $id) {
+    id
+    name
+    visibility
+    owner {
+      id
+    }
+    difficulty {
+      id
+      name
+    }
+    tossups {
+      id
+      order
+      tossup {
+        id
+        question
+        answer
+        subcategory {
+          id
+          name
+          category {
+            id
+            name
+          }
+        }
+      }
+    }
+    bonuses {
+      id
+      order
+      bonus {
+        id
+        preamble
+        subcategory {
+          id
+          name
+          category {
+            id
+            name
+          }
+        }
+        bonusParts {
+          id
+          order
+          bonusPart {
+            id
+            question
+            answer
+          }
+        }
+      }
+    }
+  }
+}

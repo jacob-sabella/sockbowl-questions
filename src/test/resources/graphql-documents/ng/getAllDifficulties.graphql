@@ -1,0 +1,2 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts getAllDifficulties() (goal/m4-limits, copied for WP-Q2, only re-indented)
+query { getAllDifficulties { id name } }
