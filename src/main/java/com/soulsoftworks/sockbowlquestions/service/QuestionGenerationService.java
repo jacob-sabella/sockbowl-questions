@@ -68,14 +68,49 @@ public class QuestionGenerationService {
     public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
                                   AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         validatePrompt(topic, additionalContext);
-        // M4-UQ-01: the generated packet is owned, so check packets-owned before any AI charge.
-        contentQuotaGuard.checkPacketsOwned(ownerId);
         log.info("Generating packet using strategy: {} with {} questions (bonuses: {})", strategyName, questionCount, generateBonuses);
+        // M4-UQ-01 / Q-V1-01: the AI concurrency lock (ai:inflight:{sub}, D11) is
+        // acquired FIRST, exactly as before this fix: it already admits at most one
+        // generation per owner at a time, fast-rejecting (429 ai-concurrency, no
+        // spin-wait) a second truly-overlapping call instead of queueing it, which
+        // AiGenerationLimitsIT depends on. The packets-owned lock nests INSIDE that
+        // permit, around the strategy call and its packetRepository save: since the
+        // AI lock already serializes generate-vs-generate for one owner, the inner
+        // lock is only ever actually contended by a DIFFERENT entry point
+        // (createPacket, an owned import-random) racing the same owner — which is
+        // exactly the case it needs to close. Nesting it the other way around (the
+        // packets-owned lock as the outer gate) would make a second concurrent
+        // generate call spin-wait behind the first's whole AI call instead of
+        // getting the fast ai-concurrency rejection, changing that contract.
         try (AiPermit permit = aiGenerationGuard.acquire(requestContext)) {
-            Packet packet = activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses,
-                    requestContext, ownerId, ownerDisplayName);
-            permit.success((long) questionCount * (generateBonuses ? 2 : 1));
-            return packet;
+            try {
+                Packet packet = contentQuotaGuard.withPacketsOwnedSlot(ownerId, () -> {
+                    try {
+                        return activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses,
+                                requestContext, ownerId, ownerDisplayName);
+                    } catch (JsonProcessingException e) {
+                        throw new UncheckedGenerationException(e);
+                    }
+                });
+                permit.success((long) questionCount * (generateBonuses ? 2 : 1));
+                return packet;
+            } catch (UncheckedGenerationException e) {
+                throw e.cause();
+            }
+        }
+    }
+
+    /** Carries a checked {@link JsonProcessingException} out of the {@code Supplier} the packets-owned lock runs. */
+    private static final class UncheckedGenerationException extends RuntimeException {
+        private final JsonProcessingException cause;
+
+        UncheckedGenerationException(JsonProcessingException cause) {
+            super(cause);
+            this.cause = cause;
+        }
+
+        JsonProcessingException cause() {
+            return cause;
         }
     }
 
