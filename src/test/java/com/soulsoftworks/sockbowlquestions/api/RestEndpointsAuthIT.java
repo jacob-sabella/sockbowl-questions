@@ -50,7 +50,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         p.setId("rest-import-packet-anon");
         p.setName("Random");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of()));
+                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         client().post().uri("/api/qbreader/import-random")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -65,7 +65,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         p.setId("rest-import-packet-player");
         p.setName("Random");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of()));
+                eq(PacketVisibility.EPHEMERAL))).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         client().post().uri("/api/qbreader/import-random")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenFor(PLAYER))
@@ -91,7 +91,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         p.setId("rest-import-packet");
         p.setName("Random");
         when(importService.importRandomPacket(any(), anyInt(), anyInt(), any(), any(), anyBoolean(), any(), any(),
-                eq(PacketVisibility.defaultForNewPackets()))).thenReturn(new ImportOutcome(p, List.of()));
+                eq(PacketVisibility.defaultForNewPackets()))).thenReturn(new ImportOutcome(p, List.of(), 5, 5));
 
         client().post().uri("/api/qbreader/import-random")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenFor(AUTHOR))

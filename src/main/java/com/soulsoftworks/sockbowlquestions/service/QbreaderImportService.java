@@ -36,8 +36,13 @@ public class QbreaderImportService {
     /** Recorded as {@code createdVia} on every packet this service creates (D15). */
     public static final String CREATED_VIA = "import-random";
 
-    private static final List<String> UNLISTED_VISIBILITIES = java.util.Arrays.stream(PacketVisibility.values())
-            .filter(v -> !v.isListed()).map(Enum::name).toList();
+    /**
+     * Names of the visibilities anyone may see (Q3-01): used to scope the unique-name
+     * check so it never reveals whether another caller's private (DRAFT) packet exists.
+     */
+    private static final List<String> PUBLIC_VISIBILITIES = java.util.Arrays.stream(PacketVisibility.values())
+            .filter(PacketVisibility::isPubliclyReadable).map(Enum::name).toList();
+    private static final String LEGACY_VISIBILITY = PacketVisibility.effective(null).name();
 
     private final BankRepository bankRepository;
     private final PacketRepository packetRepository;
@@ -136,7 +141,7 @@ public class QbreaderImportService {
         String baseName = (name == null || name.isBlank()) ? "Custom packet" : name.trim();
         // A game-only packet is never listed, so its name needn't be unique (and guest
         // imports must not push listed packets' names to "(2)", "(3)", ...).
-        String packetName = effectiveVisibility.isGameOnly() ? baseName : uniqueName(baseName);
+        String packetName = effectiveVisibility.isGameOnly() ? baseName : uniqueName(baseName, ownerId);
 
         String id = packetRepository.batchCreatePacket(
                 packetName, difficultyLabel(diff), tossupRows, bonusRows, ownerId, ownerDisplayName,
@@ -146,11 +151,19 @@ public class QbreaderImportService {
         return new ImportOutcome(
                 Packet.builder().id(id).name(packetName).ownerId(ownerId).ownerDisplayName(ownerDisplayName)
                         .visibility(effectiveVisibility).build(),
-                new ArrayList<>(new LinkedHashSet<>(usedRemoteIds)));
+                new ArrayList<>(new LinkedHashSet<>(usedRemoteIds)),
+                tossupRows.size(), bonusRows.size());
     }
 
-    /** A completed generation: the packet and the qbreader ids of the questions it used. */
-    public record ImportOutcome(Packet packet, List<String> usedRemoteIds) {}
+    /**
+     * A completed generation: the packet, the qbreader ids of the questions it used, and
+     * the answer-free {@code tossupCount}/{@code bonusCount} actually persisted (the
+     * bonus count can be lower than requested when a sampled bonus had no parts). ng's
+     * Generate flow (FIXN4) reads these off {@code QbreaderController.ImportResult}
+     * instead of re-reading the packet from GraphQL, which returns {@code null} for an
+     * EPHEMERAL packet.
+     */
+    public record ImportOutcome(Packet packet, List<String> usedRemoteIds, int tossupCount, int bonusCount) {}
 
     /** How many bank tossups/bonuses match a filter — a live "breadth" preview for the UI. */
     public AvailableCount countAvailable(QbRandomFilter filter) {
@@ -242,22 +255,27 @@ public class QbreaderImportService {
 
     /* -------------------------------------------------------------------- */
 
-    /** Listed packets only: game-only (EPHEMERAL) packets don't reserve names. */
-    private Packet findByExactName(String name) {
-        return packetRepository.searchListedByName(name, UNLISTED_VISIBILITIES,
-                        PacketVisibility.effective(null).name()).stream()
+    /**
+     * A packet with this exact name that {@code ownerId} may see: publicly readable
+     * (PUBLISHED, or legacy) packets, plus {@code ownerId}'s own packets of any
+     * visibility. Never matches another caller's DRAFT (Q3-01): otherwise the "(2)"
+     * suffix on the returned name would reveal that a private packet with that name
+     * exists, to a caller who cannot see it through any read query.
+     */
+    private Packet findByExactName(String name, String ownerId) {
+        return packetRepository.searchVisibleByName(name, PUBLIC_VISIBILITIES, LEGACY_VISIBILITY, ownerId).stream()
                 .filter(p -> name.equalsIgnoreCase(p.getName()))
                 .findFirst().orElse(null);
     }
 
-    /** Appends a numeric suffix if a packet with this name already exists. */
-    private String uniqueName(String base) {
-        if (findByExactName(base) == null) {
+    /** Appends a numeric suffix if a packet {@code ownerId} can see with this name already exists. */
+    private String uniqueName(String base, String ownerId) {
+        if (findByExactName(base, ownerId) == null) {
             return base;
         }
         for (int i = 2; i < 1000; i++) {
             String candidate = base + " (" + i + ")";
-            if (findByExactName(candidate) == null) {
+            if (findByExactName(candidate, ownerId) == null) {
                 return candidate;
             }
         }

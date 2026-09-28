@@ -149,17 +149,24 @@ public class QbreaderController {
                                 String name, List<String> excludeRemoteIds, Boolean balanced) {}
 
     /**
-     * The created packet's id and name, plus the qbreader ids of the bank questions used,
-     * which ng passes back as {@code excludeRemoteIds} on the next import so a match
-     * doesn't repeat questions. Returned for EPHEMERAL packets too (accepted risk, Q-M2-04):
+     * The created packet's id and name, its answer-free {@code tossupCount}/
+     * {@code bonusCount}, plus the qbreader ids of the bank questions used, which ng
+     * passes back as {@code excludeRemoteIds} on the next import so a match doesn't
+     * repeat questions. Returned for EPHEMERAL packets too (accepted risk, Q-M2-04):
      * they identify questions from the public qbreader set, whose text and answers are
      * already public on qbreader itself, so no Sockbowl-private content is exposed. A
      * caller determined to look the answers up there could, but that caller is the one
      * generating the game (the host), and the ids don't make the packet readable here.
+     *
+     * <p>{@code tossupCount}/{@code bonusCount} exist so a caller that gets an EPHEMERAL
+     * packet back (a guest or player, D15) can show a "N tossups / N bonuses" summary
+     * without re-reading the packet through GraphQL, which returns {@code null} for a
+     * game-only packet ({@code PacketReadPolicy}) — see ng's WP-FIXN4.
      */
-    public record ImportResult(String id, String name, List<String> usedRemoteIds) {
+    public record ImportResult(String id, String name, int tossupCount, int bonusCount, List<String> usedRemoteIds) {
         static ImportResult from(ImportOutcome o) {
-            return new ImportResult(o.packet().getId(), o.packet().getName(), o.usedRemoteIds());
+            return new ImportResult(o.packet().getId(), o.packet().getName(),
+                    o.tossupCount(), o.bonusCount(), o.usedRemoteIds());
         }
     }
 }
