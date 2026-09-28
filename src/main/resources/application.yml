@@ -172,10 +172,11 @@ sockbowl:
       default-mutation-policy: graphql-write
       fields:
         generateAndAddTossup: graphql-write
-      # Static caps (WP-Q2). max-complexity is provisional until Q2 calibrates it
-      # against every ng and game document (2x the largest).
+      # Static caps (WP-Q2). max-complexity is 2x the largest ng/game document
+      # (game PacketClient getPacketById = 41; see GraphQlLimitsConfig). INT1
+      # re-measures with M3's documents.
       max-depth: 15
-      max-complexity: 1000
+      max-complexity: 82
   quota:
     enabled: "${SOCKBOWL_QUOTA_ENABLED:true}"
     daily-ttl: 48h
