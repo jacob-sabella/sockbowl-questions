@@ -220,14 +220,18 @@ class AuthOffHttpIT extends Neo4jContainerTestBase {
                 .replace("{subcategoryId}", f.subcategoryId());
     }
 
-    /** A DRAFT packet owned by someone else, with one tossup and one bonus (one part). */
+    /**
+     * A DRAFT packet owned by someone else, with one tossup and one bonus (with two parts, so
+     * removing one stays within the M3 min-1-part rule, PB-11).
+     */
     private MutationFixture seedOwnershipFixture() {
         List<Map<String, Object>> tossups = List.of(Map.of(
                 "question", "Q?", "answer", "A",
                 "category", "QAuthOffOwnCat", "subcategory", "QAuthOffOwnSub", "remoteId", "", "order", 0));
         List<Map<String, Object>> bonuses = List.of(Map.of(
                 "preamble", "Pre", "category", "QAuthOffOwnCat", "subcategory", "QAuthOffOwnSub", "remoteId", "", "order", 0,
-                "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0))));
+                "parts", List.of(Map.of("question", "BQ?", "answer", "BA", "order", 0),
+                        Map.of("question", "BQ2?", "answer", "BA2", "order", 1))));
         String packetId = packetRepository.batchCreatePacket(uniqueName(), "Easy", tossups, bonuses,
                 "someone-else", "Someone", PacketVisibility.DRAFT.name(), null,
                 "someone-else", Instant.now().toString(), ContentSource.AUTHORED.name());
@@ -259,7 +263,9 @@ class AuthOffHttpIT extends Neo4jContainerTestBase {
                 new OwnershipMutation("reorderTossup", f -> fill(
                         "mutation { reorderTossup(packetId: \"{packetId}\", tossupId: \"{tossupId}\", newOrder: 0) { id } }", f)),
                 new OwnershipMutation("addBonusToPacket", f -> fill(
-                        "mutation { addBonusToPacket(packetId: \"{packetId}\", input: {preamble: \"P2\"}) { id } }", f)),
+                        // M3 (PB-11): a new bonus needs at least one part.
+                        "mutation { addBonusToPacket(packetId: \"{packetId}\", input: {preamble: \"P2\", "
+                                + "parts: [{question: \"NBQ?\", answer: \"NBA\"}]}) { id } }", f)),
                 new OwnershipMutation("updateBonus", f -> fill(
                         "mutation { updateBonus(id: \"{bonusId}\", input: {preamble: \"P3\"}) { id } }", f)),
                 new OwnershipMutation("reorderBonus", f -> fill(

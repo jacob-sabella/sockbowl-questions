@@ -128,6 +128,75 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
     @Query("MATCH (p:Packet)-[:CONTAINS_BONUS]->(b:Bonus {id: $bonusId}) RETURN p LIMIT 1")
     Optional<Packet> findByBonusId(@Param("bonusId") String bonusId);
 
+    /* ---------------- Optimistic locking (M3 Q2, PB-18, plan 3.1.4) ---------------- */
+
+    /**
+     * Takes the packet's write lock, checks the version and bumps it, in one statement.
+     * Every content mutation in {@code PacketAuthoringService} calls this first, so
+     * concurrent mutations of one packet are serialized for the rest of the transaction.
+     *
+     * <p>The {@code SET p.versionLock ... REMOVE} pair exists only to acquire the node's
+     * exclusive lock <em>before</em> {@code p.version} is read. Neo4j reads are
+     * read-committed without locks, so reading the version before locking would let two
+     * transactions both see version N and both write N+1 (a lost update). Once the lock is
+     * held, the read sees the latest committed version.
+     *
+     * @param expected the version the caller last saw, or null to skip the check
+     * @return the new version, or null when the packet doesn't exist or {@code expected}
+     *         doesn't match (tell the two apart with {@link #currentVersion})
+     */
+    @Query("""
+            MATCH (p:Packet {id: $id})
+            SET p.versionLock = true
+            REMOVE p.versionLock
+            WITH p
+            WHERE $expected IS NULL OR coalesce(p.version, 0) = $expected
+            SET p.version = coalesce(p.version, 0) + 1
+            RETURN p.version
+            """)
+    Long bumpVersion(@Param("id") String id, @Param("expected") Long expected);
+
+    /** The packet's stored version (null reads as 0); empty when the packet doesn't exist. */
+    @Query("MATCH (p:Packet {id: $id}) RETURN coalesce(p.version, 0)")
+    Optional<Long> currentVersion(@Param("id") String id);
+
+    /** Id of the packet containing the tossup, for the version bump of node-level mutations. */
+    @Query("MATCH (p:Packet)-[:CONTAINS_TOSSUP]->(:Tossup {id: $tossupId}) RETURN p.id LIMIT 1")
+    Optional<String> findPacketIdByTossupId(@Param("tossupId") String tossupId);
+
+    /** Id of the packet containing the bonus, for the version bump of node-level mutations. */
+    @Query("MATCH (p:Packet)-[:CONTAINS_BONUS]->(:Bonus {id: $bonusId}) RETURN p.id LIMIT 1")
+    Optional<String> findPacketIdByBonusId(@Param("bonusId") String bonusId);
+
+    /**
+     * Body of the per-row {@code CALL (t)} in {@link #batchCreatePacket}: resolves
+     * {@code t.category}/{@code t.subcategory} to exactly one {@code cat} and one {@code sub}
+     * (lowest id among case-variant duplicates), creating each only when absent (Q-M3V1-03).
+     */
+    String RESOLVE_TAXONOMY_ROW = """
+                  OPTIONAL MATCH (c0:Category {nameKey: toLower(trim(t.category))})
+                  WITH t, c0 ORDER BY c0.id LIMIT 1
+                  FOREACH (_ IN CASE WHEN c0 IS NULL THEN [1] ELSE [] END |
+                    MERGE (cn:Category {nameKey: toLower(trim(t.category))})
+                      ON CREATE SET cn.id = randomUUID(), cn.name = t.category)
+                  WITH t
+                  CALL (t) {
+                    MATCH (c:Category {nameKey: toLower(trim(t.category))})
+                    RETURN c AS cat ORDER BY c.id LIMIT 1
+                  }
+                  OPTIONAL MATCH (cat)<-[:SUBCATEGORY_OF]-(s0:Subcategory {nameKey: toLower(trim(t.subcategory))})
+                  WITH t, cat, s0 ORDER BY s0.id LIMIT 1
+                  FOREACH (_ IN CASE WHEN s0 IS NULL THEN [1] ELSE [] END |
+                    MERGE (cat)<-[:SUBCATEGORY_OF]-(sn:Subcategory {nameKey: toLower(trim(t.subcategory))})
+                      ON CREATE SET sn.id = randomUUID(), sn.name = t.subcategory)
+                  WITH t, cat
+                  CALL (cat, t) {
+                    MATCH (cat)<-[:SUBCATEGORY_OF]-(s:Subcategory {nameKey: toLower(trim(t.subcategory))})
+                    RETURN s AS sub ORDER BY s.id LIMIT 1
+                  }
+                  RETURN cat, sub
+            """;
+
     /**
      * Resolves the owning packet of a bonus part (via its bonus), for the D13
      * provenance field gate ({@code ProvenanceFieldResolver}, M4-PV-01).
@@ -139,8 +208,16 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * Creates a whole packet — difficulty, tossups, bonuses, bonus parts, and
      * the taxonomy each references — in a single write, instead of ~40
      * sequential authoring calls. Categories/Subcategories/Difficulty are
-     * MERGE-d by name (subcategory scoped to its category) so the taxonomy is
-     * reused, not duplicated; new question nodes get fresh UUID ids.
+     * resolved by {@code nameKey} (subcategory scoped to its category, M3 Q4, D4) so the
+     * taxonomy is reused, not duplicated, and follows the same dedupe rule as
+     * {@code TaxonomyService}'s create methods; new question nodes get fresh UUID ids.
+     *
+     * <p>Resolution never fans out (Q-M3V1-03): when legacy case-variant duplicates share a
+     * {@code nameKey} (the initializer leaves them, and skips the constraint, unless
+     * dedupe-on-startup is on), the lowest-id node is used, and a node is only created
+     * (via {@code MERGE}, so concurrent creators still serialize) when none exists. Each
+     * row resolves in its own {@code CALL (t)} execution, so a name created by one row is
+     * seen by the next.
      *
      * @param tossups list of maps: question, answer, category, subcategory, order
      * @param bonuses list of maps: preamble, category, subcategory, order, parts
@@ -166,8 +243,17 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
      * @return the new packet's id
      */
     @Query("""
-            MERGE (d:Difficulty {name: $difficultyName})
-              ON CREATE SET d.id = randomUUID()
+            CALL () {
+              OPTIONAL MATCH (d0:Difficulty {nameKey: toLower(trim($difficultyName))})
+              WITH d0 ORDER BY d0.id LIMIT 1
+              FOREACH (_ IN CASE WHEN d0 IS NULL THEN [1] ELSE [] END |
+                MERGE (dn:Difficulty {nameKey: toLower(trim($difficultyName))})
+                  ON CREATE SET dn.id = randomUUID(), dn.name = $difficultyName)
+            }
+            CALL () {
+              MATCH (d:Difficulty {nameKey: toLower(trim($difficultyName))})
+              RETURN d ORDER BY d.id LIMIT 1
+            }
             CREATE (p:Packet {id: randomUUID(), name: $packetName, ownerId: $ownerId, ownerDisplayName: $ownerDisplayName,
                               visibility: $visibility, createdVia: $createdVia,
                               ephemeralCreatedAt: CASE WHEN $visibility = 'EPHEMERAL' THEN datetime() ELSE null END,
@@ -177,10 +263,9 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
             WITH p
             CALL (p) {
               UNWIND $tossups AS t
-                MERGE (cat:Category {name: t.category})
-                  ON CREATE SET cat.id = randomUUID()
-                MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {name: t.subcategory})
-                  ON CREATE SET sub.id = randomUUID()
+                CALL (t) {
+            """ + RESOLVE_TAXONOMY_ROW + """
+                }
                 CREATE (tu:Tossup {id: randomUUID(), question: t.question, answer: t.answer, remoteId: t.remoteId,
                                    source: $source, createdBy: $auditor, createdAt: datetime($nowIso),
                                    lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
@@ -189,18 +274,17 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
             }
             WITH p
             CALL (p) {
-              UNWIND $bonuses AS b
-                MERGE (cat:Category {name: b.category})
-                  ON CREATE SET cat.id = randomUUID()
-                MERGE (cat)<-[:SUBCATEGORY_OF]-(sub:Subcategory {name: b.subcategory})
-                  ON CREATE SET sub.id = randomUUID()
-                CREATE (bo:Bonus {id: randomUUID(), preamble: b.preamble, remoteId: b.remoteId,
+              UNWIND $bonuses AS t
+                CALL (t) {
+            """ + RESOLVE_TAXONOMY_ROW + """
+                }
+                CREATE (bo:Bonus {id: randomUUID(), preamble: t.preamble, remoteId: t.remoteId,
                                   source: $source, createdBy: $auditor, createdAt: datetime($nowIso),
                                   lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
                 CREATE (sub)-[:SUBCATEGORY_IS]->(bo)
-                CREATE (p)-[:CONTAINS_BONUS {order: b.order}]->(bo)
-                WITH bo, b
-                UNWIND b.parts AS part
+                CREATE (p)-[:CONTAINS_BONUS {order: t.order}]->(bo)
+                WITH bo, t
+                UNWIND t.parts AS part
                   CREATE (bp:BonusPart {id: randomUUID(), question: part.question, answer: part.answer,
                                         source: $source, createdBy: $auditor, createdAt: datetime($nowIso),
                                         lastModifiedBy: $auditor, lastModifiedAt: datetime($nowIso)})
