@@ -245,4 +245,11 @@ public interface PacketRepository extends Neo4jRepository<Packet, String> {
             DETACH DELETE p, t, b, bp
             """)
     void deletePacketCascade(@Param("id") String id);
+
+    /**
+     * Packets owned by a subject (the {@code packets-owned} quota, D10, WP-Q4). An
+     * EPHEMERAL packet has no owner, so it never counts.
+     */
+    @Query("MATCH (p:Packet) WHERE p.ownerId = $ownerId RETURN count(p)")
+    long countByOwnerId(@Param("ownerId") String ownerId);
 }
