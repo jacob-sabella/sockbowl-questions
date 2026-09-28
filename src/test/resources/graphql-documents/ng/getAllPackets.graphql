@@ -1,0 +1,54 @@
+# sockbowl-ng src/app/game/services/sockbowl-questions.service.ts getAllPackets() (goal/m4-limits, copied for WP-Q2, only re-indented)
+query {
+  getAllPackets {
+    id
+    name
+    difficulty {
+      id
+      name
+    }
+    owner {
+      id
+      name
+    }
+    bonuses {
+      order
+      bonus {
+        id
+        preamble
+        subcategory {
+          id
+          name
+          category {
+            id
+            name
+          }
+        }
+        bonusParts {
+          order
+          bonusPart {
+            id
+            question
+            answer
+          }
+        }
+      }
+    }
+    tossups {
+      order
+      tossup {
+        id
+        question
+        answer
+        subcategory {
+          id
+          name
+          category {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts generateAndAddTossup() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($packetId: ID!, $input: GenerateTossupInput!, $order: Int) {
+  generateAndAddTossup(packetId: $packetId, input: $input, order: $order) { id }
+}

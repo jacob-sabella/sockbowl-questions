@@ -1,0 +1,2 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts getAllSubcategories() (goal/m4-limits, copied for WP-Q2, only re-indented)
+query { getAllSubcategories { id name category { id name } } }

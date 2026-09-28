@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts createPacket() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($input: CreatePacketInput!) {
+  createPacket(input: $input) { id }
+}

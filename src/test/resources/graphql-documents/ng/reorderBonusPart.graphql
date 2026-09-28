@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts reorderBonusPart() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($bonusId: ID!, $bonusPartId: ID!, $newOrder: Int!) {
+  reorderBonusPart(bonusId: $bonusId, bonusPartId: $bonusPartId, newOrder: $newOrder) { id }
+}

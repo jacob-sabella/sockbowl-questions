@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts addBonusPart() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($bonusId: ID!, $input: BonusPartInput!, $order: Int) {
+  addBonusPart(bonusId: $bonusId, input: $input, order: $order) { id }
+}

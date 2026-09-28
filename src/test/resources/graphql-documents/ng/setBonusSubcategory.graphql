@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts setBonusSubcategory() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($bonusId: ID!, $subcategoryId: ID!) {
+  setBonusSubcategory(bonusId: $bonusId, subcategoryId: $subcategoryId) { id }
+}

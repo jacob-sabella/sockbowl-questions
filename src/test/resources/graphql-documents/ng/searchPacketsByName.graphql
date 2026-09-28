@@ -1,0 +1,18 @@
+# sockbowl-ng src/app/game/services/sockbowl-questions.service.ts searchPacketsByName() (goal/m4-limits, copied for WP-Q2, only re-indented)
+query ($name: String!) {
+  searchPacketsByName(name: $name) {
+    id
+    name
+    difficulty {
+      id
+      name
+    }
+    owner {
+      id
+      name
+    }
+    bonuses {
+      id
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts removeBonusPart() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($bonusId: ID!, $bonusPartId: ID!) {
+  removeBonusPart(bonusId: $bonusId, bonusPartId: $bonusPartId) { id }
+}

@@ -1,0 +1,4 @@
+# sockbowl-ng src/app/packets/services/packet-authoring.service.ts reorderTossup() (goal/m4-limits, copied for WP-Q2, only re-indented)
+mutation ($packetId: ID!, $tossupId: ID!, $newOrder: Int!) {
+  reorderTossup(packetId: $packetId, tossupId: $tossupId, newOrder: $newOrder) { id }
+}
