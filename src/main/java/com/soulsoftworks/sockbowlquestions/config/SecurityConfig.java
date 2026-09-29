@@ -95,6 +95,8 @@ public class SecurityConfig {
                     // D15: guests and players get an EPHEMERAL packet, packet:create an owned DRAFT.
                     a.requestMatchers(HttpMethod.POST, "/api/qbreader/import-random").permitAll();
                     a.requestMatchers("/api/packets/generate").authenticated();
+                    // Saved Claude key (plus question:generate, checked on the controller).
+                    a.requestMatchers("/api/me/ai-key", "/api/me/ai-key/**").authenticated();
                     // M4-AD-01: game's admin usage API relays the admin's own token here.
                     a.requestMatchers(HttpMethod.GET, "/api/admin/usage/content-counts")
                             .hasAuthority(AdminUsageController.ADMIN_ACCESS);

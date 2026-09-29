@@ -60,6 +60,7 @@ class GraphQlSecurityErrorMappingTest {
     private MockMvc mvc;
 
     @MockitoBean private PacketAuthoringService authoringService;
+    @MockitoBean private com.soulsoftworks.sockbowlquestions.aikey.UserAiKeyService userAiKeyService;
     @MockitoBean private PacketRepository packetRepository;
 
     private ResultActions graphql(String body, RequestPostProcessor... auth) throws Exception {

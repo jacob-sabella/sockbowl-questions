@@ -89,6 +89,14 @@ sockbowl:
       # Models a server-key call may request via X-Model (comma-separated).
       # BYO-key calls may use any model.
       allowed-models: "${SOCKBOWL_AI_SERVER_ALLOWED_MODELS:${spring.ai.openai.chat.options.model}}"
+    # Saved per-user Claude keys (aikey.*). Keys are AES-256-GCM encrypted with
+    # this base64 32-byte secret (openssl rand -base64 32); empty disables the
+    # feature (the /api/me/ai-key endpoints answer 503).
+    user-keys:
+      encryption-key: "${SOCKBOWL_AI_KEY_ENCRYPTION_KEY:}"
+    anthropic:
+      base-url: "${SOCKBOWL_AI_ANTHROPIC_BASE_URL:https://api.anthropic.com}"
+      max-tokens: 8192
     max-topic-length: 200
     max-context-length: 2000
     max-question-count: 30

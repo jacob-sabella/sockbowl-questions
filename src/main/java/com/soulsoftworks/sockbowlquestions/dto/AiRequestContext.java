@@ -2,17 +2,25 @@ package com.soulsoftworks.sockbowlquestions.dto;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.ToString;
 
 /**
  * Encapsulates user-provided API configuration that flows through the request lifecycle.
- * Supports per-request API key and model overrides for OpenAI.
+ * Supports per-request API key and model overrides for OpenAI, and a user's
+ * saved Claude key ({@link AiProvider#ANTHROPIC}).
  */
 @Data
 @Builder
 public class AiRequestContext {
+    /** Provider the key belongs to; OpenAI unless it came from a saved Claude key. */
+    @Builder.Default
+    private AiProvider provider = AiProvider.OPENAI;
+
     /**
-     * User-provided OpenAI API key (from X-API-Key header).
+     * User-provided API key (from the X-API-Key header, or a saved Claude key).
+     * Excluded from toString so it can't reach a log line.
      */
+    @ToString.Exclude
     private String apiKey;
 
     /**

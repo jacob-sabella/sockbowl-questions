@@ -40,6 +40,9 @@ dependencies {
 	implementation 'com.google.code.gson:gson:2.14.0'
 	implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
 	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+	// Saved per-user Claude keys: the model module only (no starter), so no
+	// autoconfigured Anthropic ChatModel competes with the server's default provider.
+	implementation 'org.springframework.ai:spring-ai-anthropic'
 	implementation 'org.springframework.ai:spring-ai-starter-vector-store-neo4j'
 	implementation 'com.github.victools:jsonschema-generator:5.0.0'
 	implementation 'org.springframework.boot:spring-boot-starter-security'

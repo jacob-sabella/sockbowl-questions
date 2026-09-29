@@ -74,6 +74,7 @@ class SecurityConfigTest {
     private MockMvc mvc;
 
     @MockitoBean private BankStatsRepository bankStatsRepository;
+    @MockitoBean private com.soulsoftworks.sockbowlquestions.aikey.UserAiKeyService userAiKeyService;
     @MockitoBean private BankDimensionsRepository bankDimensionsRepository;
     @MockitoBean private QbreaderImportService importService;
     @MockitoBean private QuestionGenerationService questionGenerationService;

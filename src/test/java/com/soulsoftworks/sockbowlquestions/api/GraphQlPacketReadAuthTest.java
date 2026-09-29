@@ -79,6 +79,7 @@ class GraphQlPacketReadAuthTest {
     @Autowired private MockMvc mvc;
 
     @MockitoBean private PacketRepository packetRepository;
+    @MockitoBean private com.soulsoftworks.sockbowlquestions.aikey.UserAiKeyService userAiKeyService;
     @MockitoBean private DifficultyRepository difficultyRepository;
     @MockitoBean private CategoryRepository categoryRepository;
     @MockitoBean private SubcategoryRepository subcategoryRepository;

@@ -449,6 +449,16 @@ public class PacketAuthoringService {
     @Transactional
     public Packet generateAndAddTossup(String packetId, GenerateTossupInput input, Integer order,
                                        Integer expectedVersion) {
+        return generateAndAddTossup(packetId, input, order, expectedVersion, null);
+    }
+
+    /**
+     * As above; {@code savedKeyContext} (the caller's saved Claude key, resolved by
+     * the controller) is used when the input carries no {@code apiKey}.
+     */
+    @Transactional
+    public Packet generateAndAddTossup(String packetId, GenerateTossupInput input, Integer order,
+                                       Integer expectedVersion, AiRequestContext savedKeyContext) {
         String topic = requireText(input.topic(), "Topic");
         bumpVersion(packetId, expectedVersion);
         Packet packet = requirePacket(packetId);
@@ -458,6 +468,9 @@ public class PacketAuthoringService {
                 .apiKey(input.apiKey())
                 .model(input.model())
                 .build();
+        if (!context.hasCustomConfig() && savedKeyContext != null) {
+            context = savedKeyContext;
+        }
         validateAiRequest(context);
 
         List<Tossup> existing = sortedTossups(packet).stream()

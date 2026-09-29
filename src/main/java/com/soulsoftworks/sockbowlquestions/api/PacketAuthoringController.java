@@ -1,11 +1,13 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
+import com.soulsoftworks.sockbowlquestions.aikey.UserAiKeyService;
 import com.soulsoftworks.sockbowlquestions.api.input.BonusInput;
 import com.soulsoftworks.sockbowlquestions.api.input.BonusPartInput;
 import com.soulsoftworks.sockbowlquestions.api.input.BonusUpdateInput;
 import com.soulsoftworks.sockbowlquestions.api.input.CreatePacketInput;
 import com.soulsoftworks.sockbowlquestions.api.input.GenerateTossupInput;
 import com.soulsoftworks.sockbowlquestions.api.input.TossupInput;
+import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.PacketVisibility;
@@ -15,7 +17,9 @@ import com.soulsoftworks.sockbowlquestions.service.PacketAuthoringService;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Controller;
 
@@ -31,9 +35,12 @@ import org.springframework.stereotype.Controller;
 public class PacketAuthoringController {
 
     private final PacketAuthoringService authoringService;
+    private final UserAiKeyService userAiKeyService;
 
-    public PacketAuthoringController(PacketAuthoringService authoringService) {
+    public PacketAuthoringController(PacketAuthoringService authoringService,
+                                     UserAiKeyService userAiKeyService) {
         this.authoringService = authoringService;
+        this.userAiKeyService = userAiKeyService;
     }
 
     /* ------------------------------- Packet -------------------------------- */
@@ -205,6 +212,14 @@ public class PacketAuthoringController {
                                        @Argument GenerateTossupInput input,
                                        @Argument Integer order,
                                        @Argument Integer expectedVersion) {
-        return authoringService.generateAndAddTossup(packetId, input, order, expectedVersion);
+        // No apiKey in the input: use the caller's saved Claude key, if any.
+        AiRequestContext savedKey = null;
+        if (input == null || input.apiKey() == null || input.apiKey().isBlank()) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            Jwt jwt = auth != null && auth.getPrincipal() instanceof Jwt j ? j : null;
+            savedKey = userAiKeyService.resolveContext(AuthenticatedUser.fromJwt(jwt).keycloakId(),
+                    input == null ? null : input.model()).orElse(null);
+        }
+        return authoringService.generateAndAddTossup(packetId, input, order, expectedVersion, savedKey);
     }
 }

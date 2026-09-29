@@ -5,6 +5,9 @@ import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.AiProviderUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.soulsoftworks.sockbowlquestions.dto.AiProvider;
+import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -15,7 +18,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * Factory service for creating ChatClient instances with custom or default configuration.
- * Supports per-request API key and model overrides for OpenAI.
+ * Supports per-request API key and model overrides for OpenAI, and a user's
+ * saved Claude key (Anthropic).
  */
 @Service
 public class ChatClientFactory {
@@ -28,6 +32,13 @@ public class ChatClientFactory {
 
     @Value("${spring.ai.openai.base-url:https://api.openai.com}")
     private String openAiBaseUrl;
+
+    @Value("${sockbowl.ai.anthropic.base-url:https://api.anthropic.com}")
+    private String anthropicBaseUrl;
+
+    /** Anthropic requires max_tokens; a whole packet's tossup/bonus JSON fits well inside this. */
+    @Value("${sockbowl.ai.anthropic.max-tokens:8192}")
+    private int anthropicMaxTokens;
 
     public ChatClientFactory(
             @Qualifier("quizBowlQuestionWriterChatClient") ObjectProvider<ChatClient> defaultChatClientProvider) {
@@ -56,10 +67,36 @@ public class ChatClientFactory {
             return defaultChatClient;
         }
 
+        if (context.getProvider() == AiProvider.ANTHROPIC) {
+            logger.info("Creating Anthropic ChatClient from the user's saved key - model: {}", context.getModel());
+            return createAnthropicChatClient(context);
+        }
+
         logger.info("Creating custom ChatClient with user-provided configuration - model: {}, temp: {}, topP: {}, freqPenalty: {}, presPenalty: {}",
                 context.getModel(), context.getTemperature(), context.getTopP(),
                 context.getFrequencyPenalty(), context.getPresencePenalty());
         return createCustomChatClient(context);
+    }
+
+    /**
+     * A ChatClient on the user's saved Claude key. The OpenAI-only sampling knobs
+     * (penalties) don't apply, and temperature/top-p are left at Claude's defaults:
+     * newer Claude models reject setting both, and the saved-key flow doesn't
+     * expose them.
+     */
+    private ChatClient createAnthropicChatClient(AiRequestContext context) {
+        AnthropicChatOptions options = AnthropicChatOptions.builder()
+                .baseUrl(anthropicBaseUrl)
+                .apiKey(context.getApiKey())
+                .model(context.getModel())
+                .maxTokens(anthropicMaxTokens)
+                .build();
+        AnthropicChatModel chatModel = AnthropicChatModel.builder()
+                .options(options)
+                .build();
+        return ChatClient.builder(chatModel)
+                .defaultSystem(AiConfig.SYSTEM_PROMPT)
+                .build();
     }
 
     /**

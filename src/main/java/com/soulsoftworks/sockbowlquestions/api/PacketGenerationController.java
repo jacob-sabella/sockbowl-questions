@@ -1,6 +1,7 @@
 package com.soulsoftworks.sockbowlquestions.api;
 
 import com.google.gson.Gson;
+import com.soulsoftworks.sockbowlquestions.aikey.UserAiKeyService;
 import com.soulsoftworks.sockbowlquestions.api.input.GeneratePacketRequest;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
@@ -32,15 +33,18 @@ public class PacketGenerationController {
 
     private final QuestionGenerationService questionGenerationService;
     private final AiSecurityProperties securityProperties;
+    private final UserAiKeyService userAiKeyService;
 
     @Value("${sockbowl.ai.packetgen.question-count:5}")
     private int defaultQuestionCount;
 
     public PacketGenerationController(
             QuestionGenerationService questionGenerationService,
-            AiSecurityProperties securityProperties) {
+            AiSecurityProperties securityProperties,
+            UserAiKeyService userAiKeyService) {
         this.questionGenerationService = questionGenerationService;
         this.securityProperties = securityProperties;
+        this.userAiKeyService = userAiKeyService;
     }
 
     /**
@@ -53,7 +57,8 @@ public class PacketGenerationController {
      * {@code limiter_unavailable} are rendered by {@code LimitsExceptionAdvice}.
      *
      * @param request topic, additionalContext, questionCount (1-30, default from config), generateBonuses
-     * @param apiKey User-provided OpenAI API key (optional, from X-API-Key header)
+     * @param apiKey User-provided OpenAI API key (optional, from X-API-Key header); when
+     *        absent, the caller's saved Claude key is used if they have one
      * @param model User-provided OpenAI model (optional, from X-Model header)
      * @param temperature Controls randomness (0.0-2.0, default 1.0)
      * @param topP Controls diversity via nucleus sampling (0.0-1.0, default 1.0)
@@ -111,6 +116,11 @@ public class PacketGenerationController {
         }
 
         AiRequestContext requestContext = contextBuilder.build();
+        // No X-API-Key: fall back to the caller's saved Claude key, if any
+        // (X-Model still overrides its saved model).
+        if (!requestContext.hasCustomConfig()) {
+            requestContext = userAiKeyService.resolveContext(user.keycloakId(), model).orElse(requestContext);
+        }
 
         // Validate request based on security configuration
         validateRequest(requestContext);
@@ -163,14 +173,15 @@ public class PacketGenerationController {
 
     /**
      * Whether a failure came from the AI provider's API (the OpenAI SDK's
-     * {@code com.openai.errors.*} or Spring AI's retry exceptions) rather than
+     * {@code com.openai.errors.*}, the Anthropic SDK's {@code com.anthropic.errors.*} or Spring AI's retry exceptions) rather than
      * from this service.
      */
     static boolean isUpstreamProviderFailure(Throwable e) {
         Throwable current = e;
         for (int depth = 0; current != null && depth < 10; depth++) {
             String name = current.getClass().getName();
-            if (name.startsWith("com.openai.errors.") || name.startsWith("org.springframework.ai.retry.")) {
+            if (name.startsWith("com.openai.errors.") || name.startsWith("com.anthropic.errors.")
+                    || name.startsWith("org.springframework.ai.retry.")) {
                 return true;
             }
             if (current.getCause() == current) {
