@@ -316,6 +316,11 @@ spring:
         enabled: true
         options:
           model: "mxbai-embed-large" # 1024 dimensions
+    vectorstore:
+      neo4j:
+        # Known up front so Neo4jVectorStore doesn't call the embedding model at
+        # startup to discover it (that call fails wherever Ollama isn't reachable, e.g. CI).
+        embedding-dimension: 1024 # mxbai-embed-large
   neo4j:
     uri: "${SOCKBOWL_NEO4J_URL:bolt://localhost:7687}"
     authentication:
