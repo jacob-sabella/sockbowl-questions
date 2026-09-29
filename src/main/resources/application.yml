@@ -324,4 +324,4 @@ spring:
         embedding-property: embedding
         database-name: neo4j
         index-name: custom-index
-        embedding-dimension: 1024 # Ollama nomic-embed-text dimensions
+        embedding-dimension: 1024 # mxbai-embed-large dimensions (must match spring.ai.ollama.embedding.options.model above)
