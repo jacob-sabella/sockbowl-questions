@@ -5,10 +5,12 @@ on:
     branches:
       - "main"
       - "release/**"
+      - "goal/**"
     tags:
       - "v*"
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,7 +29,47 @@ concurrency:
 # commit each time. This is intentional, not leftover inconsistency.
 
 jobs:
+  test:
+    # CI-Q (M6): questions never ran its test suite in CI. Testcontainers
+    # (Neo4j, Keycloak, Redis) reach straight into the runner's own Docker
+    # daemon, exactly as they do on a dev machine — no extra setup step is
+    # needed, ubuntu-latest ships Docker already. build-and-publish below
+    # needs: this job, so a broken suite blocks the image build.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6.0.1
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Run tests
+        run: |
+          chmod +x gradlew
+          ./gradlew -S test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: test-results
+          path: build/test-results/test
+          retention-days: 7
+
   build-and-publish:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -54,13 +96,17 @@ jobs:
         id: ver
         run: |
           chmod +x gradlew
-          echo "VERSION=$(./gradlew -q printVersion)" >> $GITHUB_ENV
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$(./gradlew -q printVersion)" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build models jars
         run: ./gradlew -S clean modelsJar modelsSourcesJar
 
+      # The remaining steps publish and push, and must never run for a PR or
+      # a goal/** branch run (M6 CI-Q): only a push to main, or a tag, is
+      # allowed to touch GitHub Packages or GHCR.
       - name: Publish models to GitHub Packages (Maven)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,6 +116,7 @@ jobs:
         run: ./gradlew bootBuildImage
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
         uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
@@ -77,6 +124,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push Docker Image
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
         run: |
           IMAGE_TAG="ghcr.io/${{ github.repository }}:${{ env.VERSION }}"
           docker push "${IMAGE_TAG}"
@@ -90,6 +138,8 @@ jobs:
           fi
 
   dependency-submission:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
