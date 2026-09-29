@@ -137,6 +137,39 @@ jobs:
             echo "Tagged and pushed as :main"
           fi
 
+          # Immutable per-commit tag for the deploy job (main only).
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            SHA_TAG="ghcr.io/${{ github.repository }}:sha-${{ github.sha }}"
+            docker tag "${IMAGE_TAG}" "${SHA_TAG}"
+            docker push "${SHA_TAG}"
+          fi
+
+  # Continuous deployment: after the image for this commit is published, ask
+  # the prod host to switch questions to it. The key is restricted by a forced
+  # command (sockbowl-docker scripts/deploy/ssh-deploy-gate.sh) to exactly
+  # `deploy <service> <sha>`; the host pulls the sha-<sha> image, waits for
+  # the healthcheck, and rolls back to the previous image if it fails.
+  deploy:
+    needs: build-and-publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: prod-deploy-questions
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to production
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_HOST" "deploy questions ${GITHUB_SHA}"
+
   dependency-submission:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
