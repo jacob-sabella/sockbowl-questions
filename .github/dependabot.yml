@@ -9,8 +9,33 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    groups:
+      # M6 DEP1: group minor/patch bumps into one PR per run to cut noise;
+      # majors still open individually so they get a human look.
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # M6 ledger (audit/m6/deps-questions.json, S2 scout): stay on the last
+      # stable Spring Boot line until 4.2.0 leaves milestone (4.2.0-M2 today).
+      - dependency-name: "org.springframework.boot"
+        versions: [">=4.2.0"]
+      - dependency-name: "org.springframework.boot:*"
+        versions: [">=4.2.0"]
+      # Same decision for Spring Security's BOM-managed version (spring-security-test).
+      - dependency-name: "org.springframework.security:spring-security-test"
+        versions: [">=7.2.0"]
+      # Same decision for Spring AI: stay on 2.0.1 until 2.1.0 leaves milestone (2.1.0-M1 today).
+      - dependency-name: "org.springframework.ai:*"
+        versions: [">=2.1.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"

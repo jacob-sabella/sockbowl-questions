@@ -48,13 +48,15 @@ dependencies {
 	// M4 limiter core (a port of sockbowl-game's ratelimit package): Redis-backed
 	// token buckets (bucket4j over its own Lettuce connection), quotas and bans
 	// in the Redis shared with game. The data-redis starter supplies Lettuce and
-	// the Redis health indicator; lettuce-core and caffeine versions come from the
-	// Spring Boot BOM so they stay in step with spring-data-redis.
+	// the Redis health indicator; lettuce-core and caffeine would otherwise come
+	// from the Spring Boot 4.1.1 BOM (7.5.2.RELEASE / 3.2.4). M6 DEP1-Q pins both
+	// explicitly past the BOM (audit/m6/deps-questions.json S2 scout); drop the
+	// overrides once Spring Boot's own BOM catches up past 7.8.0.RELEASE / 3.3.0.
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'com.bucket4j:bucket4j_jdk17-core:8.20.0'
 	implementation 'com.bucket4j:bucket4j_jdk17-lettuce:8.20.0'
-	implementation 'io.lettuce:lettuce-core'
-	implementation 'com.github.ben-manes.caffeine:caffeine'
+	implementation 'io.lettuce:lettuce-core:7.8.0.RELEASE'
+	implementation 'com.github.ben-manes.caffeine:caffeine:3.3.0'
 
 	compileOnly 'org.projectlombok:lombok:1.18.48'
 	annotationProcessor 'org.projectlombok:lombok:1.18.48'
