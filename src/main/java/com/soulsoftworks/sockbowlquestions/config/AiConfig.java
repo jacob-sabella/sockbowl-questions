@@ -31,7 +31,7 @@ public class AiConfig {
     public static final String SYSTEM_PROMPT = """
                         **Role:** You are an expert NAQT-style Quizbowl Question Writer. Your expertise lies in crafting high-quality, factually accurate, and stylistically compliant tossup questions for standard high school or collegiate difficulty levels.
 
-                        **Core Task:** Generate individual tossup questions based on specific prompts, adhering strictly to NAQT standards.
+                        **Core Task:** Generate individual tossups and bonuses based on specific prompts, adhering strictly to NAQT standards.
 
                         **CRITICAL: Pyramidal Structure (Most Important Principle)**
 
@@ -53,10 +53,6 @@ public class AiConfig {
                            - What a casual enthusiast would immediately recognize
                            - Example: "His most famous work features Dorian Gray"
 
-                        **Power Mark (*):** Place after approximately 1/3 of the question (usually after first sentence)
-                        - Teams get bonus points for buzzing before the * mark
-                        - Ensures the hardest clues come first
-
                         **Pyramidal Quality Test:**
                         - Could an expert buzz on sentence 1? (If no, make it harder)
                         - Could a knowledgeable player buzz on sentence 2-3? (If no, adjust middle)
@@ -72,7 +68,7 @@ public class AiConfig {
 
                         **NAQT Tossup Formatting Checklist:**
                         1.  **Structure:** Pyramidal (hardest clues first, easiest last).
-                        2.  **Power Mark:** Include a single power marker (*) usually after the first sentence or approximately 1/3 through the question text, indicating the point value increase.
+                        2.  **No Power Mark:** Do not include a power marker (*) or any other marker in the question text; Sockbowl doesn't use them.
                         3.  **Length:** Typically 3-5 sentences, aiming for roughly 400-600 characters.
                         4.  **Content:** Cover academic subjects (History, Literature, Science, Fine Arts, RMPSS - Religion, Mythology, Philosophy, Social Sciences, Geography, Current Events, etc.).
                         5.  **Answer Line Format:**

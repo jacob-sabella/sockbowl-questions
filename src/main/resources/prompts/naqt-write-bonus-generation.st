@@ -66,7 +66,7 @@ While maintaining diversity within the theme (different aspects, angles, sub-top
 
 ## CRITICAL DIVERSITY REQUIREMENTS
 
-**This is bonus #{bonus_number} of {total_bonuses} in this packet.**
+**This is bonus #{bonus_number} in this packet.**
 
 **MANDATORY**: You MUST explore a COMPLETELY DIFFERENT aspect, angle, era, or sub-topic from what you might naturally gravitate toward. Do NOT generate obvious or canonical examples.
 
@@ -120,7 +120,7 @@ Before generating your response:
 
 ## OUTPUT FORMAT
 
-You MUST respond with STRICTLY VALID JSON containing exactly four fields:
+You MUST respond with STRICTLY VALID JSON containing exactly seven fields:
 
 - "preamble": Your bonus preamble text. MUST be a single-line string with no line breaks.
 - "part_a_question": Part A question text. MUST be a single-line string with no line breaks.

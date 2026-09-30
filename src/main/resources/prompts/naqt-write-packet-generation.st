@@ -53,7 +53,10 @@ While maintaining diversity within the theme (different aspects, angles, sub-top
 
 ## CRITICAL DIVERSITY REQUIREMENTS
 
-**This is question #{tossup_number} of {total_questions} in this packet.**
+**This is question #{tossup_number} in this packet.**
+
+**Answers already used in this packet** (your answer must be a different subject from every one of these):
+{avoid_answers}
 
 **MANDATORY**: You MUST explore a COMPLETELY DIFFERENT aspect, angle, era, or sub-topic from what you might naturally gravitate toward. Do NOT generate obvious or canonical examples.
 

@@ -2,6 +2,7 @@ package com.soulsoftworks.sockbowlquestions.service.strategy;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
+import com.soulsoftworks.sockbowlquestions.dto.AiProvider;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
@@ -13,6 +14,7 @@ import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsBonus;
 import com.soulsoftworks.sockbowlquestions.models.relationships.ContainsTossup;
 import com.soulsoftworks.sockbowlquestions.models.relationships.HasBonusPart;
 import com.soulsoftworks.sockbowlquestions.service.ChatClientFactory;
+import com.soulsoftworks.sockbowlquestions.service.LlmResponses;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
@@ -20,6 +22,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
  * Default question generation strategy - the original approach.
@@ -45,6 +49,29 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
             AiPrompts aiPrompts) {
         this.chatClientFactory = chatClientFactory;
         this.aiPrompts = aiPrompts;
+    }
+
+    private static final int MAX_ATTEMPTS = 3;
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** Anthropic structured-output schemas (object, all fields required, no extras). */
+    private static final String TOSSUP_SCHEMA = stringObjectSchema("question", "answer");
+    private static final String BONUS_SCHEMA = stringObjectSchema("preamble", "part_a_question", "part_a_answer",
+            "part_b_question", "part_b_answer", "part_c_question", "part_c_answer");
+
+    private static String stringObjectSchema(String... fields) {
+        StringBuilder properties = new StringBuilder();
+        StringBuilder required = new StringBuilder();
+        for (String field : fields) {
+            if (!properties.isEmpty()) {
+                properties.append(',');
+                required.append(',');
+            }
+            properties.append('"').append(field).append("\":{\"type\":\"string\"}");
+            required.append('"').append(field).append('"');
+        }
+        return "{\"type\":\"object\",\"properties\":{" + properties + "},\"required\":[" + required
+                + "],\"additionalProperties\":false}";
     }
 
     private record TossupPromptDTO(String question, String answer) {
@@ -93,17 +120,8 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
             log.info("Current topic: {}", topic);
             log.info("Number of existing tossups to avoid: {}", existingTossups.size());
 
-            Tossup tossup = null;
-            int maxAttempts = 3;
-
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                log.info("Attempt {} to generate non-duplicate tossup", attempt);
-                tossup = generateTossup(topic, additionalContext, existingTossups, requestContext);
-
-                if (existingTossups.isEmpty()) {
-                    break;
-                }
-            }
+            // One call per tossup: the prompt carries every earlier answer to avoid.
+            Tossup tossup = generateTossup(topic, additionalContext, existingTossups, requestContext);
 
             existingTossups.add(tossup);
 
@@ -123,17 +141,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 log.info("Current topic: {}", topic);
                 log.info("Number of existing bonuses to avoid: {}", existingBonuses.size());
 
-                Bonus bonus = null;
-                int maxAttempts = 3;
-
-                for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                    log.info("Attempt {} to generate non-duplicate bonus", attempt);
-                    bonus = generateBonus(topic, additionalContext, existingBonuses, existingTossups, requestContext);
-
-                    if (existingBonuses.isEmpty()) {
-                        break;
-                    }
-                }
+                Bonus bonus = generateBonus(topic, additionalContext, existingBonuses, existingTossups, requestContext);
 
                 existingBonuses.add(bonus);
 
@@ -168,9 +176,6 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
     @Override
     public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups, AiRequestContext requestContext) {
-        // Resolve ChatClient based on request context
-        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
-
         log.info("=== Starting Tossup Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
@@ -197,55 +202,18 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
         Map<String, Object> promptParams = new HashMap<>();
         promptParams.put("tossup_number", existingTossups.size() + 1);
-        promptParams.put("total_questions", 20);
         promptParams.put("tossup_topic", topic);
         promptParams.put("user_context", additionalContext != null ? additionalContext : "");
         promptParams.put("diversity_mandate", diversityMandate);
+        promptParams.put("avoid_answers", avoidList(existingTossups.stream().map(Tossup::getAnswer).toList()));
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(aiPrompts.getNaqtWriterPacketGenerationPrompt());
 
-        log.info("Generated structured prompt: {}", systemPromptTemplate.render(promptParams));
+        String prompt = systemPromptTemplate.render(promptParams);
+        log.debug("Tossup prompt: {}", prompt);
 
-        // Retry up to 10 times if JSON parsing fails
-        int maxRetries = 10;
-        TossupPromptDTO response = null;
-        com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                log.info("LLM call attempt {} of {}", attempt, maxRetries);
-
-                String rawResponse = chatClient.prompt()
-                        .user(systemPromptTemplate.render(promptParams))
-                        .call()
-                        .content();
-
-                log.info("Raw AI response (attempt {}): {}", attempt, rawResponse);
-
-                String extractedJson = extractJson(rawResponse);
-                log.info("Extracted JSON: {}", extractedJson);
-
-                String sanitizedResponse = sanitizeJsonNewlines(extractedJson);
-                log.info("Sanitized response: {}", sanitizedResponse);
-
-                response = objectMapper.readValue(sanitizedResponse, TossupPromptDTO.class);
-
-                log.info("Successfully parsed JSON on attempt {}", attempt);
-                break;
-
-            } catch (Exception e) {
-                log.warn("Attempt {} failed to parse JSON: {}", attempt, e.getMessage());
-                if (attempt == maxRetries) {
-                    log.error("Failed to parse JSON after {} attempts", maxRetries);
-                    throw new RuntimeException("Failed to parse AI response after " + maxRetries + " attempts: " + e.getMessage(), e);
-                }
-                log.info("Retrying...");
-            }
-        }
-
-        if (response == null) {
-            throw new RuntimeException("Failed to generate valid tossup after " + maxRetries + " attempts");
-        }
+        TossupPromptDTO response = callForJson(requestContext, prompt, TOSSUP_SCHEMA, TossupPromptDTO.class,
+                t -> t.question() != null && !t.question().isBlank() && t.answer() != null && !t.answer().isBlank());
 
         log.info("Received AI response:");
         log.info("Question length: {} characters", response.question() != null ? response.question().length() : 0);
@@ -267,9 +235,6 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
 
     @Override
     public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups, AiRequestContext requestContext) {
-        // Resolve ChatClient based on request context
-        ChatClient chatClient = chatClientFactory.getChatClient(requestContext);
-
         log.info("=== Starting Bonus Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
@@ -294,70 +259,33 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         int bonusIndex = existingBonuses.size();
         String diversityMandate = diversityMandates[bonusIndex % diversityMandates.length];
 
-        // Build context about existing tossups to avoid overlap
-        StringBuilder tossupContext = new StringBuilder();
-        if (!existingTossups.isEmpty()) {
-            tossupContext.append("\n\n**Context from existing tossups in this packet:**\n");
-            tossupContext.append("The following tossup answers have already been used: ");
-            for (int i = 0; i < Math.min(existingTossups.size(), 5); i++) {
-                if (i > 0) tossupContext.append(", ");
-                tossupContext.append(existingTossups.get(i).getAnswer());
+        // Every answer already in the packet (all tossups, then earlier bonus parts).
+        List<String> usedAnswers = new ArrayList<>(existingTossups.stream().map(Tossup::getAnswer).toList());
+        for (Bonus earlier : existingBonuses) {
+            if (earlier.getBonusParts() != null) {
+                earlier.getBonusParts().forEach(part -> usedAnswers.add(part.getBonusPart().getAnswer()));
             }
-            tossupContext.append("\nAvoid directly repeating these as bonus answers, but you may explore related themes.");
         }
+        String tossupContext = usedAnswers.isEmpty() ? ""
+                : "\n\n**Answers already used in this packet** (do not reuse any of them as a bonus answer; related themes are fine):\n"
+                        + avoidList(usedAnswers);
 
         Map<String, Object> promptParams = new HashMap<>();
         promptParams.put("bonus_number", existingBonuses.size() + 1);
-        promptParams.put("total_bonuses", 20); // Default
         promptParams.put("bonus_topic", topic);
         promptParams.put("user_context", additionalContext != null ? additionalContext : "");
         promptParams.put("diversity_mandate", diversityMandate);
-        promptParams.put("tossup_context", tossupContext.toString());
+        promptParams.put("tossup_context", tossupContext);
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(aiPrompts.getNaqtWriterBonusGenerationPrompt());
 
-        log.info("Generated structured prompt: {}", systemPromptTemplate.render(promptParams));
+        String prompt = systemPromptTemplate.render(promptParams);
+        log.debug("Bonus prompt: {}", prompt);
 
-        // Retry up to 10 times if JSON parsing fails
-        int maxRetries = 10;
-        BonusPromptDTO response = null;
-        com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                log.info("LLM call attempt {} of {}", attempt, maxRetries);
-
-                String rawResponse = chatClient.prompt()
-                        .user(systemPromptTemplate.render(promptParams))
-                        .call()
-                        .content();
-
-                log.info("Raw AI response (attempt {}): {}", attempt, rawResponse);
-
-                String extractedJson = extractJson(rawResponse);
-                log.info("Extracted JSON: {}", extractedJson);
-
-                String sanitizedResponse = sanitizeJsonNewlines(extractedJson);
-                log.info("Sanitized response: {}", sanitizedResponse);
-
-                response = objectMapper.readValue(sanitizedResponse, BonusPromptDTO.class);
-
-                log.info("Successfully parsed JSON on attempt {}", attempt);
-                break;
-
-            } catch (Exception e) {
-                log.warn("Attempt {} failed to parse JSON: {}", attempt, e.getMessage());
-                if (attempt == maxRetries) {
-                    log.error("Failed to parse JSON after {} attempts", maxRetries);
-                    throw new RuntimeException("Failed to parse AI response after " + maxRetries + " attempts: " + e.getMessage(), e);
-                }
-                log.info("Retrying...");
-            }
-        }
-
-        if (response == null) {
-            throw new RuntimeException("Failed to generate valid bonus after " + maxRetries + " attempts");
-        }
+        BonusPromptDTO response = callForJson(requestContext, prompt, BONUS_SCHEMA, BonusPromptDTO.class,
+                b -> Stream.of(b.preamble(), b.part_a_question(), b.part_a_answer(), b.part_b_question(),
+                        b.part_b_answer(), b.part_c_question(), b.part_c_answer())
+                        .allMatch(v -> v != null && !v.isBlank()));
 
         log.info("Received AI response:");
         log.info("Preamble length: {} characters", response.preamble() != null ? response.preamble().length() : 0);
@@ -423,6 +351,74 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
             return requestContext.getModel();
         }
         return defaultChatModel;
+    }
+
+    /** A bulleted list of answers for the prompt, or "(none yet)". */
+    private static String avoidList(List<String> answers) {
+        List<String> present = answers.stream().filter(a -> a != null && !a.isBlank()).toList();
+        if (present.isEmpty()) {
+            return "(none yet)";
+        }
+        StringBuilder list = new StringBuilder();
+        present.forEach(a -> list.append("- ").append(a).append('\n'));
+        return list.toString();
+    }
+
+    /**
+     * One model call for a JSON answer of {@code type}. Only an unusable answer
+     * (malformed or incomplete JSON) is retried, at most {@link #MAX_ATTEMPTS} times in
+     * all; provider errors (bad key, rate limit, outage) are not retried here, since the
+     * SDK already retries transient ones. On a saved Claude key the answer is
+     * schema-constrained; a model that rejects structured outputs (400) gets one retry
+     * without the schema.
+     */
+    private <T> T callForJson(AiRequestContext requestContext, String prompt, String schema, Class<T> type,
+                              Predicate<T> complete) {
+        boolean anthropic = requestContext != null && requestContext.getProvider() == AiProvider.ANTHROPIC
+                && requestContext.hasCustomConfig();
+        String activeSchema = anthropic ? schema : null;
+        ChatClient chatClient = chatClientFactory.getChatClient(requestContext, activeSchema);
+        String lastProblem = "no answer";
+        int attempt = 0;
+        while (attempt < MAX_ATTEMPTS) {
+            attempt++;
+            String raw;
+            try {
+                raw = LlmResponses.answerText(chatClient.prompt().user(prompt).call().chatResponse());
+            } catch (RuntimeException e) {
+                if (activeSchema != null && isAnthropicBadRequest(e)) {
+                    log.warn("Model {} rejected the structured-output request ({}); retrying without a schema",
+                            requestContext.getModel(), e.getMessage());
+                    activeSchema = null;
+                    chatClient = chatClientFactory.getChatClient(requestContext, null);
+                    attempt--;
+                    continue;
+                }
+                throw e;
+            }
+            log.debug("Raw AI response (attempt {}): {}", attempt, raw);
+            try {
+                T parsed = JSON.readValue(sanitizeJsonNewlines(extractJson(raw)), type);
+                if (parsed != null && complete.test(parsed)) {
+                    log.info("Parsed {} on attempt {}", type.getSimpleName(), attempt);
+                    return parsed;
+                }
+                lastProblem = "incomplete answer";
+            } catch (JsonProcessingException e) {
+                lastProblem = e.getOriginalMessage();
+            }
+            log.warn("Attempt {} of {} gave an unusable answer: {}", attempt, MAX_ATTEMPTS, lastProblem);
+        }
+        throw new IllegalStateException("The AI gave no usable answer after " + MAX_ATTEMPTS + " attempts: " + lastProblem);
+    }
+
+    private static boolean isAnthropicBadRequest(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t.getClass().getName().equals("com.anthropic.errors.BadRequestException")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

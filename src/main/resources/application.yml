@@ -96,7 +96,7 @@ sockbowl:
       encryption-key: "${SOCKBOWL_AI_KEY_ENCRYPTION_KEY:}"
     anthropic:
       base-url: "${SOCKBOWL_AI_ANTHROPIC_BASE_URL:https://api.anthropic.com}"
-      max-tokens: 8192
+      max-tokens: 16000
     max-topic-length: 200
     max-context-length: 2000
     max-question-count: 30

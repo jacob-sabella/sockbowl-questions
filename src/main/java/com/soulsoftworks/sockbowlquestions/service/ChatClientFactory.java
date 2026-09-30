@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.soulsoftworks.sockbowlquestions.dto.AiProvider;
 import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicCacheOptions;
+import org.springframework.ai.anthropic.AnthropicCacheStrategy;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -15,6 +17,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.time.Duration;
 
 /**
  * Factory service for creating ChatClient instances with custom or default configuration.
@@ -36,8 +40,11 @@ public class ChatClientFactory {
     @Value("${sockbowl.ai.anthropic.base-url:https://api.anthropic.com}")
     private String anthropicBaseUrl;
 
-    /** Anthropic requires max_tokens; a whole packet's tossup/bonus JSON fits well inside this. */
-    @Value("${sockbowl.ai.anthropic.max-tokens:8192}")
+    /**
+     * Anthropic requires max_tokens, and it caps thinking plus the answer together
+     * (Opus 5.5 always thinks). Kept under the Java SDK's non-streaming ceiling (~21k).
+     */
+    @Value("${sockbowl.ai.anthropic.max-tokens:16000}")
     private int anthropicMaxTokens;
 
     public ChatClientFactory(
@@ -55,6 +62,15 @@ public class ChatClientFactory {
      *         default AI provider is configured (both OpenAI and Ollama disabled)
      */
     public ChatClient getChatClient(AiRequestContext context) {
+        return getChatClient(context, null);
+    }
+
+    /**
+     * As {@link #getChatClient(AiRequestContext)}, and on the saved-Claude-key path also
+     * constrains the answer to {@code outputSchema} (Anthropic structured outputs), so it
+     * is always valid JSON of that shape. Other providers ignore it.
+     */
+    public ChatClient getChatClient(AiRequestContext context, String outputSchema) {
         if (context == null || !context.hasCustomConfig()) {
             ChatClient defaultChatClient = defaultChatClientProvider.getIfAvailable();
             if (defaultChatClient == null) {
@@ -69,7 +85,7 @@ public class ChatClientFactory {
 
         if (context.getProvider() == AiProvider.ANTHROPIC) {
             logger.info("Creating Anthropic ChatClient from the user's saved key - model: {}", context.getModel());
-            return createAnthropicChatClient(context);
+            return createAnthropicChatClient(context, outputSchema);
         }
 
         logger.info("Creating custom ChatClient with user-provided configuration - model: {}, temp: {}, topP: {}, freqPenalty: {}, presPenalty: {}",
@@ -82,15 +98,23 @@ public class ChatClientFactory {
      * A ChatClient on the user's saved Claude key. The OpenAI-only sampling knobs
      * (penalties) don't apply, and temperature/top-p are left at Claude's defaults:
      * newer Claude models reject setting both, and the saved-key flow doesn't
-     * expose them.
+     * expose them. Thinking and effort stay at the model's defaults (Opus 5.5: adaptive,
+     * medium). The system prompt is identical on every call of a packet, so it's cached
+     * (reads cost a tenth of input or less; too short to cache on Haiku, which is harmless).
      */
-    private ChatClient createAnthropicChatClient(AiRequestContext context) {
-        AnthropicChatOptions options = AnthropicChatOptions.builder()
+    private ChatClient createAnthropicChatClient(AiRequestContext context, String outputSchema) {
+        AnthropicChatOptions.Builder builder = AnthropicChatOptions.builder()
                 .baseUrl(anthropicBaseUrl)
                 .apiKey(context.getApiKey())
                 .model(context.getModel())
                 .maxTokens(anthropicMaxTokens)
-                .build();
+                // Spring AI's default is 60s, too short for a thinking model on a long answer.
+                .timeout(Duration.ofMinutes(5))
+                .cacheOptions(AnthropicCacheOptions.builder().strategy(AnthropicCacheStrategy.SYSTEM_ONLY).build());
+        if (outputSchema != null) {
+            builder.outputSchema(outputSchema);
+        }
+        AnthropicChatOptions options = builder.build();
         AnthropicChatModel chatModel = AnthropicChatModel.builder()
                 .options(options)
                 .build();

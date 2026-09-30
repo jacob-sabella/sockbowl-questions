@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
@@ -157,7 +158,7 @@ class AiGenerationLimitsIT extends Neo4jContainerTestBase {
         CLOCK.set(BASE);
         CHAT.reset();
         rateLimitRedis.sync().flushdb();
-        when(chatClientFactory.getChatClient(any())).thenAnswer(inv -> ChatClient.builder(CHAT).build());
+        when(chatClientFactory.getChatClient(any(), nullable(String.class))).thenAnswer(inv -> ChatClient.builder(CHAT).build());
     }
 
     @AfterEach

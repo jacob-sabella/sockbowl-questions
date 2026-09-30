@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -67,7 +68,7 @@ class PacketsOwnedConcurrencyIT extends ContentQuotaITSupport {
     @BeforeEach
     void wireAi() {
         CHAT.reset();
-        when(chatClientFactory.getChatClient(any())).thenAnswer(inv -> ChatClient.builder(CHAT).build());
+        when(chatClientFactory.getChatClient(any(), nullable(String.class))).thenAnswer(inv -> ChatClient.builder(CHAT).build());
     }
 
     @Test
