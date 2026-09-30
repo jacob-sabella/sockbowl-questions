@@ -5,6 +5,7 @@ import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
 import com.soulsoftworks.sockbowlquestions.dto.AiProvider;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Bonus;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.BonusPart;
 import com.soulsoftworks.sockbowlquestions.models.nodes.ContentSource;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
@@ -74,6 +75,30 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 + "],\"additionalProperties\":false}";
     }
 
+    /**
+     * The prompt section that pins the question to the packet's difficulty: its name
+     * and the owner-edited description from the taxonomy. It outranks the templates'
+     * push toward obscure answers, which suits hard packets and not easy ones. No
+     * difficulty, no section.
+     */
+    static String difficultyGuidance(Difficulty difficulty) {
+        if (difficulty == null || difficulty.getName() == null || difficulty.getName().isBlank()) {
+            return "";
+        }
+        StringBuilder section = new StringBuilder("\n**TARGET DIFFICULTY (MANDATORY)**: ")
+                .append(difficulty.getName().strip()).append('\n');
+        String description = difficulty.getDescription();
+        if (description != null && !description.isBlank()) {
+            section.append('\n').append(description.strip()).append('\n');
+        }
+        section.append("\nWrite for players at exactly this level: the choice of answer, every clue and the ")
+                .append("giveaway must fit it. This outranks any instruction below to prefer obscure, ")
+                .append("specialist or non-canonical material. At easier levels, choose answers these players ")
+                .append("can reasonably know and keep even the opening clues within their reach; at harder ")
+                .append("levels, the lead-in clues should reward deep knowledge.\n");
+        return section.toString();
+    }
+
     private record TossupPromptDTO(String question, String answer) {
     }
 
@@ -94,11 +119,12 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     }
 
     @Override
-    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
+    public Packet generatePacket(String topic, String additionalContext, Difficulty difficulty, int questionCount, boolean generateBonuses,
                                   AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         log.info("=== Starting New Packet Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
+        log.info("Difficulty: {}", difficulty != null ? difficulty.getName() : "(none)");
         log.info("Target number of tossups: {}", questionCount);
         log.info("Generate bonuses: {}", generateBonuses);
         if (generateBonuses) {
@@ -109,7 +135,8 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 .builder()
                 .name("Generated Packet: %s - %s".formatted(topic, UUID.randomUUID()))
                 .ownerId(ownerId)
-                .ownerDisplayName(ownerDisplayName);
+                .ownerDisplayName(ownerDisplayName)
+                .difficulty(difficulty);
 
         List<Tossup> existingTossups = new ArrayList<>();
         List<Bonus> existingBonuses = new ArrayList<>();
@@ -121,7 +148,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
             log.info("Number of existing tossups to avoid: {}", existingTossups.size());
 
             // One call per tossup: the prompt carries every earlier answer to avoid.
-            Tossup tossup = generateTossup(topic, additionalContext, existingTossups, requestContext);
+            Tossup tossup = generateTossup(topic, additionalContext, difficulty, existingTossups, requestContext);
 
             existingTossups.add(tossup);
 
@@ -141,7 +168,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
                 log.info("Current topic: {}", topic);
                 log.info("Number of existing bonuses to avoid: {}", existingBonuses.size());
 
-                Bonus bonus = generateBonus(topic, additionalContext, existingBonuses, existingTossups, requestContext);
+                Bonus bonus = generateBonus(topic, additionalContext, difficulty, existingBonuses, existingTossups, requestContext);
 
                 existingBonuses.add(bonus);
 
@@ -175,7 +202,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     }
 
     @Override
-    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups, AiRequestContext requestContext) {
+    public Tossup generateTossup(String topic, String additionalContext, Difficulty difficulty, List<Tossup> existingTossups, AiRequestContext requestContext) {
         log.info("=== Starting Tossup Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
@@ -205,6 +232,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         promptParams.put("tossup_topic", topic);
         promptParams.put("user_context", additionalContext != null ? additionalContext : "");
         promptParams.put("diversity_mandate", diversityMandate);
+        promptParams.put("difficulty_guidance", difficultyGuidance(difficulty));
         promptParams.put("avoid_answers", avoidList(existingTossups.stream().map(Tossup::getAnswer).toList()));
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(aiPrompts.getNaqtWriterPacketGenerationPrompt());
@@ -234,7 +262,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
     }
 
     @Override
-    public Bonus generateBonus(String topic, String additionalContext, List<Bonus> existingBonuses, List<Tossup> existingTossups, AiRequestContext requestContext) {
+    public Bonus generateBonus(String topic, String additionalContext, Difficulty difficulty, List<Bonus> existingBonuses, List<Tossup> existingTossups, AiRequestContext requestContext) {
         log.info("=== Starting Bonus Generation (Default Strategy) ===");
         log.info("Topic: {}", topic);
         log.info("Additional Context: {}", additionalContext);
@@ -276,6 +304,7 @@ public class DefaultQuestionGenerationStrategy implements QuestionGenerationStra
         promptParams.put("user_context", additionalContext != null ? additionalContext : "");
         promptParams.put("diversity_mandate", diversityMandate);
         promptParams.put("tossup_context", tossupContext);
+        promptParams.put("difficulty_guidance", difficultyGuidance(difficulty));
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(aiPrompts.getNaqtWriterBonusGenerationPrompt());
 

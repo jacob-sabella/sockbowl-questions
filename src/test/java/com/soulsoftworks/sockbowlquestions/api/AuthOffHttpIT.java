@@ -68,7 +68,7 @@ class AuthOffHttpIT extends Neo4jContainerTestBase {
     /** {@code generateAndAddTossup} (in the ownership-gated mutation list below) calls this. */
     @BeforeEach
     void stubAiGeneration() {
-        when(questionGenerationService.generateTossup(any(), any(), any(), any()))
+        when(questionGenerationService.generateTossup(any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> Tossup.builder().question("Generated?").answer("Generated answer").build());
     }
 
@@ -179,7 +179,7 @@ class AuthOffHttpIT extends Neo4jContainerTestBase {
         Packet generated = new Packet();
         generated.setId("authoff-generated");
         generated.setName("Generated");
-        when(questionGenerationService.generatePacket(any(), any(), anyInt(), anyBoolean(), any(), any(), any()))
+        when(questionGenerationService.generatePacket(any(), any(), any(), anyInt(), anyBoolean(), any(), any(), any()))
                 .thenReturn(generated);
 
         // M4 (D11): generate is a POST with a JSON body.
@@ -193,7 +193,7 @@ class AuthOffHttpIT extends Neo4jContainerTestBase {
                 .expectBody(String.class).value(body -> assertThat(body).contains("authoff-generated"));
 
         // Guest generation: no owner is recorded.
-        verify(questionGenerationService).generatePacket(eq("Science"), isNull(), eq(2), eq(true), any(),
+        verify(questionGenerationService).generatePacket(eq("Science"), isNull(), isNull(), eq(2), eq(true), any(),
                 isNull(), any());
     }
 

@@ -8,6 +8,7 @@ import com.soulsoftworks.sockbowlquestions.quota.ContentQuotaGuard;
 import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Tossup;
 import com.soulsoftworks.sockbowlquestions.repository.PacketRepository;
@@ -61,6 +62,7 @@ public class QuestionGenerationService {
      *
      * @param topic Topic for the packet
      * @param additionalContext Additional context or instructions
+     * @param difficulty Target difficulty (null for none); set on the packet and put in every prompt
      * @param questionCount Number of tossups/bonuses to generate (overrides default)
      * @param generateBonuses Whether to generate bonuses (default true)
      * @param requestContext Request context containing optional custom API key and model
@@ -69,7 +71,7 @@ public class QuestionGenerationService {
      * @return Generated packet
      * @throws JsonProcessingException if JSON processing fails
      */
-    public Packet generatePacket(String topic, String additionalContext, int questionCount, boolean generateBonuses,
+    public Packet generatePacket(String topic, String additionalContext, Difficulty difficulty, int questionCount, boolean generateBonuses,
                                   AiRequestContext requestContext, String ownerId, String ownerDisplayName) throws JsonProcessingException {
         validatePrompt(topic, additionalContext);
         log.info("Generating packet using strategy: {} with {} questions (bonuses: {})", strategyName, questionCount, generateBonuses);
@@ -96,7 +98,7 @@ public class QuestionGenerationService {
             // below is serialized per owner, re-checking the count right before it
             // commits so a slow generation still can't overshoot the quota even if
             // another caller filled it while this one was generating.
-            Packet packet = activeStrategy.generatePacket(topic, additionalContext, questionCount, generateBonuses,
+            Packet packet = activeStrategy.generatePacket(topic, additionalContext, difficulty, questionCount, generateBonuses,
                     requestContext, ownerId, ownerDisplayName);
             Packet saved = contentQuotaGuard.withPacketsOwnedSlot(ownerId, () -> packetRepository.save(packet));
             permit.success((long) questionCount * (generateBonuses ? 2 : 1));
@@ -109,15 +111,16 @@ public class QuestionGenerationService {
      *
      * @param topic Topic for the question
      * @param additionalContext Additional context or instructions
+     * @param difficulty Target difficulty, or null
      * @param existingTossups Previously generated tossups to avoid duplicates
      * @param requestContext Request context containing optional custom API key and model
      * @return Generated tossup
      */
-    public Tossup generateTossup(String topic, String additionalContext, List<Tossup> existingTossups, AiRequestContext requestContext) {
+    public Tossup generateTossup(String topic, String additionalContext, Difficulty difficulty, List<Tossup> existingTossups, AiRequestContext requestContext) {
         validatePrompt(topic, additionalContext);
         log.info("Generating tossup using strategy: {}", strategyName);
         try (AiPermit permit = aiGenerationGuard.acquire(requestContext)) {
-            Tossup tossup = activeStrategy.generateTossup(topic, additionalContext, existingTossups, requestContext);
+            Tossup tossup = activeStrategy.generateTossup(topic, additionalContext, difficulty, existingTossups, requestContext);
             if (tossup != null) {
                 permit.success(1);
             }

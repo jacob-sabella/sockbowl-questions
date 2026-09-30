@@ -18,7 +18,8 @@ ext {
 	//    (source, aiModel, createdBy/At, lastModifiedBy/At) on Packet/Tossup/Bonus/BonusPart.
 	// 5: INT1 (goal/int-m3m4) merge of M3 (rev 3) and M4 (rev 4): bumped once above both.
 	//    Published only to the integration's private -Dmaven.repo.local, not mavenLocal proper.
-	modelsLocalRevision = "5"
+	// 6: Difficulty.description (AI generation difficulty guidance).
+	modelsLocalRevision = "6"
 }
 
 group = 'com.soulsoftworks'

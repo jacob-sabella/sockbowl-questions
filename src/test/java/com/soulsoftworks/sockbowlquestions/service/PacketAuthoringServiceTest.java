@@ -518,7 +518,7 @@ class PacketAuthoringServiceTest {
         GenerateTossupInput input = new GenerateTossupInput("Science", null, null, null, null);
         assertThatThrownBy(() -> service.generateAndAddTossup("p", input, null, null))
                 .isInstanceOf(InvalidApiRequestException.class);
-        verify(questionGenerationService, never()).generateTossup(any(), any(), anyList(), any());
+        verify(questionGenerationService, never()).generateTossup(any(), any(), any(), anyList(), any());
     }
 
     @Test
@@ -531,7 +531,7 @@ class PacketAuthoringServiceTest {
         // source/aiModel; this service must pass them through unchanged.
         generated.setSource(ContentSource.AI_GENERATED);
         generated.setAiModel("test-model");
-        when(questionGenerationService.generateTossup(anyString(), any(), anyList(), any(AiRequestContext.class)))
+        when(questionGenerationService.generateTossup(anyString(), any(), any(), anyList(), any(AiRequestContext.class)))
                 .thenReturn(generated);
 
         GenerateTossupInput input = new GenerateTossupInput("Science", "context", null, null, null);
@@ -663,7 +663,7 @@ class PacketAuthoringServiceTest {
         assertThatThrownBy(() -> service.generateAndAddTossup("p",
                 new GenerateTossupInput("Science", null, null, null, null), null, null))
                 .isInstanceOf(ValidationFailedException.class);
-        verify(questionGenerationService, never()).generateTossup(any(), any(), anyList(), any());
+        verify(questionGenerationService, never()).generateTossup(any(), any(), any(), anyList(), any());
     }
 
     @Test

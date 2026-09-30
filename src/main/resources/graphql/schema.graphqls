@@ -172,6 +172,8 @@ Difficulty Node
 type Difficulty {
   id: ID!
   name: String
+  """What this level means; AI generation puts it in every prompt for a packet at this difficulty."""
+  description: String
 }
 
 """
@@ -340,6 +342,8 @@ extend type Mutation {
   renameCategory(id: ID!, name: String!): Category!
   renameSubcategory(id: ID!, name: String!): Subcategory!
   renameDifficulty(id: ID!, name: String!): Difficulty!
+  """Sets the difficulty's generation description (at most 2000 characters); null or blank clears it."""
+  setDifficultyDescription(id: ID!, description: String): Difficulty!
   mergeCategories(sourceId: ID!, targetId: ID!): Category!
   mergeSubcategories(sourceId: ID!, targetId: ID!): Subcategory!
   mergeDifficulties(sourceId: ID!, targetId: ID!): Difficulty!

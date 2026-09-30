@@ -2,6 +2,7 @@ package com.soulsoftworks.sockbowlquestions.service.strategy;
 
 import com.soulsoftworks.sockbowlquestions.config.AiPrompts;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.service.ChatClientFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,7 +70,7 @@ class DefaultQuestionGenerationStrategyTest {
 
     @Test
     void makesExactlyOneCallPerQuestionAndFeedsBackEarlierAnswers() throws Exception {
-        Packet packet = strategy.generatePacket("Zelda", "", 3, true, AiRequestContext.builder().build(), "u1", "U");
+        Packet packet = strategy.generatePacket("Zelda", "", null, 3, true, AiRequestContext.builder().build(), "u1", "U");
 
         assertThat(prompts).hasSize(6);
         assertThat(packet.getTossups()).hasSize(3);
@@ -81,10 +82,34 @@ class DefaultQuestionGenerationStrategyTest {
     }
 
     @Test
+    void theDifficultyAndItsDescriptionGoIntoEveryPromptAndOntoThePacket() throws Exception {
+        Difficulty ms = Difficulty.builder().id("d1").name("Middle School")
+                .description("Players are 11 to 14; canonical answers only.").build();
+
+        Packet packet = strategy.generatePacket("Zelda", "", ms, 1, true, AiRequestContext.builder().build(), "u1", "U");
+
+        assertThat(packet.getDifficulty()).isSameAs(ms);
+        assertThat(prompts).hasSize(2).allSatisfy(p -> assertThat(p)
+                .contains("**TARGET DIFFICULTY (MANDATORY)**: Middle School")
+                .contains("Players are 11 to 14; canonical answers only.")
+                .contains("outranks any instruction below to prefer obscure"));
+    }
+
+    @Test
+    void noDifficultyMeansNoDifficultySection() {
+        strategy.generateTossup("Zelda", "", null, List.of(), AiRequestContext.builder().build());
+        Difficulty unnamed = Difficulty.builder().name("Open").description("").build();
+        strategy.generateTossup("Zelda", "", unnamed, List.of(), AiRequestContext.builder().build());
+
+        assertThat(prompts.get(0)).doesNotContain("TARGET DIFFICULTY");
+        assertThat(prompts.get(1)).contains("**TARGET DIFFICULTY (MANDATORY)**: Open\n\nWrite for players");
+    }
+
+    @Test
     void retriesOnlyUnusableAnswersAndGivesUpAfterThree() {
         script.add(p -> text("Sure! Here's a tossup."));
         script.add(p -> text("{\"question\":\"\",\"answer\":\"x\"}"));
-        var tossup = strategy.generateTossup("Zelda", "", List.of(), AiRequestContext.builder().build());
+        var tossup = strategy.generateTossup("Zelda", "", null, List.of(), AiRequestContext.builder().build());
         assertThat(tossup.getAnswer()).isEqualTo("answer-1");
         assertThat(prompts).hasSize(3);
 
@@ -92,7 +117,7 @@ class DefaultQuestionGenerationStrategyTest {
         for (int i = 0; i < 3; i++) {
             script.add(p -> text("not json"));
         }
-        assertThatThrownBy(() -> strategy.generateTossup("Zelda", "", List.of(), AiRequestContext.builder().build()))
+        assertThatThrownBy(() -> strategy.generateTossup("Zelda", "", null, List.of(), AiRequestContext.builder().build()))
                 .hasMessageContaining("after 3 attempts");
         assertThat(prompts).hasSize(3);
     }
@@ -102,7 +127,7 @@ class DefaultQuestionGenerationStrategyTest {
         script.add(p -> {
             throw new IllegalStateException("401 invalid x-api-key");
         });
-        assertThatThrownBy(() -> strategy.generateTossup("Zelda", "", List.of(), AiRequestContext.builder().build()))
+        assertThatThrownBy(() -> strategy.generateTossup("Zelda", "", null, List.of(), AiRequestContext.builder().build()))
                 .hasMessageContaining("401");
         assertThat(prompts).hasSize(1);
     }

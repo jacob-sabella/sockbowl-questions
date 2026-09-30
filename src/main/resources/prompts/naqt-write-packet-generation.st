@@ -48,6 +48,7 @@ You are writing tossup #{tossup_number} for this packet.
 This is the PREDOMINANT THEME for the ENTIRE PACKET. Every question you generate MUST relate to this theme in a meaningful way. This is not just a suggestion - it is the core organizing principle for all tossups in this packet.
 
 **Additional Context**: {user_context}
+{difficulty_guidance}
 
 While maintaining diversity within the theme (different aspects, angles, sub-topics), ALL questions must connect back to the primary theme above. Do not deviate from this theme.
 

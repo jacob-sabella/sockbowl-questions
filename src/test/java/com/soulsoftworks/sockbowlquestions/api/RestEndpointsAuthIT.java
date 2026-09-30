@@ -138,7 +138,7 @@ class RestEndpointsAuthIT extends KeycloakAuthITBase {
         Packet p = new Packet();
         p.setId("rest-generate-packet");
         p.setName("Generated");
-        when(questionGenerationService.generatePacket(any(), any(), anyInt(), anyBoolean(), any(), any(), any()))
+        when(questionGenerationService.generatePacket(any(), any(), any(), anyInt(), anyBoolean(), any(), any(), any()))
                 .thenReturn(p);
 
         client().post().uri("/api/packets/generate")

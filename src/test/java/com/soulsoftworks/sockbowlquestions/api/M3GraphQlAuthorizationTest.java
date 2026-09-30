@@ -84,6 +84,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * renameCategory                            U    F      F     F     ok   ok    F
  * renameSubcategory                         U    F      F     F     ok   ok    F
  * renameDifficulty                          U    F      F     F     ok   ok    F
+ * setDifficultyDescription                  U    F      F     F     ok   ok    F
  * mergeCategories                           U    F      F     F     ok   ok    F
  * mergeSubcategories                        U    F      F     F     ok   ok    F
  * mergeDifficulties                         U    F      F     F     ok   ok    F
@@ -279,6 +280,9 @@ class M3GraphQlAuthorizationTest extends Neo4jContainerTestBase {
         ops.add(new Op("renameDifficulty", "renameDifficulty",
                 "mutation { renameDifficulty(id: \"{P}diff\", name: \"{P}DiffRenamed\") { id name } }", false, false, taxonomy,
                 (r, prefix, caller) -> r.andExpect(jsonPath("$.data.renameDifficulty.name").value(prefix + "DiffRenamed"))));
+        ops.add(new Op("setDifficultyDescription", "setDifficultyDescription",
+                "mutation { setDifficultyDescription(id: \"{P}diff\", description: \"Ages 11-14\") { id description } }", false, false, taxonomy,
+                (r, prefix, caller) -> r.andExpect(jsonPath("$.data.setDifficultyDescription.description").value("Ages 11-14"))));
         ops.add(new Op("mergeCategories", "mergeCategories",
                 "mutation { mergeCategories(sourceId: \"{P}cat2\", targetId: \"{P}cat\") { id } }", false, false, taxonomy,
                 (r, prefix, caller) -> r.andExpect(jsonPath("$.data.mergeCategories.id").value(prefix + "cat"))));

@@ -66,12 +66,12 @@ class QuestionGenerationServiceTest {
         doThrow(new QuotaExceededException("packets-owned", 5, 5, null))
                 .when(contentQuotaGuard).checkPacketsOwned("owner-1");
 
-        assertThatThrownBy(() -> service.generatePacket("topic", null, 1, false,
+        assertThatThrownBy(() -> service.generatePacket("topic", null, null, 1, false,
                 AiRequestContext.builder().build(), "owner-1", "owner"))
                 .isInstanceOf(QuotaExceededException.class);
 
         verifyNoInteractions(aiGenerationGuard);
-        verify(strategy, never()).generatePacket(any(), any(), anyInt(), anyBoolean(), any(), any(), any());
+        verify(strategy, never()).generatePacket(any(), any(), any(), anyInt(), anyBoolean(), any(), any(), any());
         verifyNoInteractions(packetRepository);
     }
 
@@ -87,7 +87,7 @@ class QuestionGenerationServiceTest {
         AtomicBoolean generatedBeforeLock = new AtomicBoolean(false);
 
         when(aiGenerationGuard.acquire(any())).thenReturn(permit);
-        when(strategy.generatePacket(eq("topic"), isNull(), eq(2), eq(false), any(), eq("owner-1"), eq("owner")))
+        when(strategy.generatePacket(eq("topic"), isNull(), isNull(), eq(2), eq(false), any(), eq("owner-1"), eq("owner")))
                 .thenAnswer(inv -> {
                     // The (simulated) AI work finishes with the packets-owned lock not yet taken.
                     verifyNoInteractions(packetRepository);
@@ -101,14 +101,14 @@ class QuestionGenerationServiceTest {
         });
         when(packetRepository.save(built)).thenReturn(saved);
 
-        Packet result = service.generatePacket("topic", null, 2, false,
+        Packet result = service.generatePacket("topic", null, null, 2, false,
                 AiRequestContext.builder().build(), "owner-1", "owner");
 
         assertThat(result).isSameAs(saved);
         InOrder order = inOrder(contentQuotaGuard, aiGenerationGuard, strategy, packetRepository, permit);
         order.verify(contentQuotaGuard).checkPacketsOwned("owner-1");
         order.verify(aiGenerationGuard).acquire(any());
-        order.verify(strategy).generatePacket(any(), any(), anyInt(), anyBoolean(), any(), any(), any());
+        order.verify(strategy).generatePacket(any(), any(), any(), anyInt(), anyBoolean(), any(), any(), any());
         order.verify(contentQuotaGuard).withPacketsOwnedSlot(eq("owner-1"), any());
         order.verify(packetRepository).save(built);
         order.verify(permit).success(2L);
@@ -125,11 +125,11 @@ class QuestionGenerationServiceTest {
     void aRaceThatFillsTheQuotaDuringGenerationStillRejectsTheSaveAndRefundsTheAiCharge() throws Exception {
         Packet built = Packet.builder().name("built").ownerId("owner-1").build();
         when(aiGenerationGuard.acquire(any())).thenReturn(permit);
-        when(strategy.generatePacket(any(), any(), anyInt(), anyBoolean(), any(), any(), any())).thenReturn(built);
+        when(strategy.generatePacket(any(), any(), any(), anyInt(), anyBoolean(), any(), any(), any())).thenReturn(built);
         when(contentQuotaGuard.withPacketsOwnedSlot(eq("owner-1"), any()))
                 .thenThrow(new QuotaExceededException("packets-owned", 2, 2, null));
 
-        assertThatThrownBy(() -> service.generatePacket("topic", null, 1, false,
+        assertThatThrownBy(() -> service.generatePacket("topic", null, null, 1, false,
                 AiRequestContext.builder().build(), "owner-1", "owner"))
                 .isInstanceOf(QuotaExceededException.class);
 

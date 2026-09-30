@@ -36,6 +36,14 @@ public interface DifficultyRepository extends Neo4jRepository<Difficulty, String
     @Query("MATCH (d:Difficulty {id: $id}) SET d.name = $name, d.nameKey = $nameKey")
     void renameById(@Param("id") String id, @Param("name") String name, @Param("nameKey") String nameKey);
 
+    /** Sets (or, with an empty string, clears) the difficulty's generation description. */
+    @Query("MATCH (d:Difficulty {id: $id}) SET d.description = $description")
+    void setDescriptionById(@Param("id") String id, @Param("description") String description);
+
+    /** Seeds a starter description on the difficulty with this nameKey, only if it never had one. */
+    @Query("MATCH (d:Difficulty {nameKey: $nameKey}) WHERE d.description IS NULL SET d.description = $description RETURN count(d)")
+    long seedDescription(@Param("nameKey") String nameKey, @Param("description") String description);
+
     /**
      * Merges {@code sourceId} into {@code targetId}: every packet on the source
      * difficulty is repointed to the target, then the source is detached and deleted.

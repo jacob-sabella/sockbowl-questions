@@ -61,7 +61,7 @@ class GraphQlMutationAuthorizationIT extends KeycloakAuthITBase {
 
     @BeforeEach
     void stubAiGeneration() {
-        when(questionGenerationService.generateTossup(any(), any(), any(), any()))
+        when(questionGenerationService.generateTossup(any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> Tossup.builder().question("Generated?").answer("Generated answer").build());
     }
 

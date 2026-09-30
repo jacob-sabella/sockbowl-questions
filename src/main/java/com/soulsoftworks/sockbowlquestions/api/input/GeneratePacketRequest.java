@@ -10,10 +10,13 @@ package com.soulsoftworks.sockbowlquestions.api.input;
  * @param questionCount     optional, 1 to {@code sockbowl.ai.max-question-count} (30); defaults to
  *                          {@code sockbowl.ai.packetgen.question-count}
  * @param generateBonuses   optional, default {@code true}
+ * @param difficultyId      optional; the packet is generated at (and tagged with) this
+ *                          difficulty, whose description goes into every prompt
  */
 public record GeneratePacketRequest(
         String topic,
         String additionalContext,
         Integer questionCount,
-        Boolean generateBonuses) {
+        Boolean generateBonuses,
+        String difficultyId) {
 }

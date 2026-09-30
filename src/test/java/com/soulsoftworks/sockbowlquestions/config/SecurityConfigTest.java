@@ -79,6 +79,7 @@ class SecurityConfigTest {
     @MockitoBean private QbreaderImportService importService;
     @MockitoBean private QuestionGenerationService questionGenerationService;
     @MockitoBean private AiSecurityProperties aiSecurityProperties;
+    @MockitoBean private com.soulsoftworks.sockbowlquestions.repository.DifficultyRepository difficultyRepository;
 
     // --- method security via the probe controller (unchanged contract) -------
 

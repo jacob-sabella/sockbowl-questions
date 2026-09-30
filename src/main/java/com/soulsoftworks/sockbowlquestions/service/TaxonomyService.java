@@ -115,6 +115,22 @@ public class TaxonomyService {
         return difficultyRepository.findById(id).orElseThrow(() -> ResourceNotFoundException.of("Difficulty", id));
     }
 
+    /** Longest difficulty description accepted; it goes into every generation prompt. */
+    public static final int DESCRIPTION_MAX = 2000;
+
+    /** Sets a difficulty's generation description; null or blank clears it. */
+    @Transactional
+    public Difficulty setDifficultyDescription(String id, String description) {
+        difficultyRepository.findById(id).orElseThrow(() -> ResourceNotFoundException.of("Difficulty", id));
+        String trimmed = description == null ? "" : description.strip();
+        if (trimmed.length() > DESCRIPTION_MAX) {
+            throw new ValidationFailedException("description",
+                    "Difficulty description exceeds " + DESCRIPTION_MAX + " characters");
+        }
+        difficultyRepository.setDescriptionById(id, trimmed);
+        return difficultyRepository.findById(id).orElseThrow(() -> ResourceNotFoundException.of("Difficulty", id));
+    }
+
     @Transactional
     public Subcategory renameSubcategory(String id, String name) {
         Subcategory current = subcategoryRepository.findById(id)

@@ -59,6 +59,7 @@ You are writing bonus #{bonus_number} for this packet.
 This is the PREDOMINANT THEME for the ENTIRE PACKET. Every bonus you generate MUST relate to this theme in a meaningful way. This is not just a suggestion - it is the core organizing principle for all bonuses in this packet.
 
 **Additional Context**: {user_context}
+{difficulty_guidance}
 
 {tossup_context}
 

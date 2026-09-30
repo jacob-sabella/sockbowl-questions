@@ -1,0 +1,3 @@
+mutation ($id: ID!, $description: String) {
+  setDifficultyDescription(id: $id, description: $description) { id name description }
+}

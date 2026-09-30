@@ -26,4 +26,12 @@ public class Difficulty {
      * collision detection and the {@code difficulty_namekey} uniqueness constraint.
      */
     private String nameKey;
+
+    /**
+     * What this level means (who the players are, how hard the answers and clues
+     * should be), edited in the taxonomy admin. AI generation puts it in every
+     * prompt for a packet at this difficulty. An empty string means "cleared on
+     * purpose", so {@code DifficultyDescriptionSeeder} leaves it alone.
+     */
+    private String description;
 }

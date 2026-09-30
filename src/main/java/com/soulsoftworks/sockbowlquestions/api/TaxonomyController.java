@@ -62,6 +62,12 @@ public class TaxonomyController {
 
     @MutationMapping
     @PreAuthorize("hasAuthority('taxonomy:manage')")
+    public Difficulty setDifficultyDescription(@Argument String id, @Argument String description) {
+        return taxonomyService.setDifficultyDescription(id, description);
+    }
+
+    @MutationMapping
+    @PreAuthorize("hasAuthority('taxonomy:manage')")
     public Category mergeCategories(@Argument String sourceId, @Argument String targetId) {
         return taxonomyService.mergeCategories(sourceId, targetId);
     }

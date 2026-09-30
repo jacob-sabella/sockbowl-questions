@@ -7,8 +7,10 @@ import com.soulsoftworks.sockbowlquestions.config.AiSecurityProperties;
 import com.soulsoftworks.sockbowlquestions.dto.AiRequestContext;
 import com.soulsoftworks.sockbowlquestions.exception.AiProviderUnavailableException;
 import com.soulsoftworks.sockbowlquestions.exception.InvalidApiRequestException;
+import com.soulsoftworks.sockbowlquestions.models.nodes.Difficulty;
 import com.soulsoftworks.sockbowlquestions.models.nodes.Packet;
 import com.soulsoftworks.sockbowlquestions.ratelimit.LimitException;
+import com.soulsoftworks.sockbowlquestions.repository.DifficultyRepository;
 import com.soulsoftworks.sockbowlquestions.security.AuthenticatedUser;
 import com.soulsoftworks.sockbowlquestions.service.QuestionGenerationService;
 import org.slf4j.Logger;
@@ -34,6 +36,7 @@ public class PacketGenerationController {
     private final QuestionGenerationService questionGenerationService;
     private final AiSecurityProperties securityProperties;
     private final UserAiKeyService userAiKeyService;
+    private final DifficultyRepository difficultyRepository;
 
     @Value("${sockbowl.ai.packetgen.question-count:5}")
     private int defaultQuestionCount;
@@ -41,10 +44,12 @@ public class PacketGenerationController {
     public PacketGenerationController(
             QuestionGenerationService questionGenerationService,
             AiSecurityProperties securityProperties,
-            UserAiKeyService userAiKeyService) {
+            UserAiKeyService userAiKeyService,
+            DifficultyRepository difficultyRepository) {
         this.questionGenerationService = questionGenerationService;
         this.securityProperties = securityProperties;
         this.userAiKeyService = userAiKeyService;
+        this.difficultyRepository = difficultyRepository;
     }
 
     /**
@@ -56,7 +61,8 @@ public class PacketGenerationController {
      * {@code quota_exceeded} ({@code ai.generations}, {@code ai.serverkey}) and 503
      * {@code limiter_unavailable} are rendered by {@code LimitsExceptionAdvice}.
      *
-     * @param request topic, additionalContext, questionCount (1-30, default from config), generateBonuses
+     * @param request topic, additionalContext, questionCount (1-30, default from config), generateBonuses,
+     *        difficultyId (optional; unknown ids are a 400)
      * @param apiKey User-provided OpenAI API key (optional, from X-API-Key header); when
      *        absent, the caller's saved Claude key is used if they have one
      * @param model User-provided OpenAI model (optional, from X-Model header)
@@ -92,6 +98,12 @@ public class PacketGenerationController {
         boolean generateBonuses = request.generateBonuses() == null || request.generateBonuses();
         // Checked here too (not only in the service) so a bad request costs nothing.
         questionGenerationService.validatePrompt(topic, additionalContext);
+
+        Difficulty difficulty = null;
+        if (request.difficultyId() != null && !request.difficultyId().isBlank()) {
+            difficulty = difficultyRepository.findById(request.difficultyId())
+                    .orElseThrow(() -> new InvalidApiRequestException("Unknown difficulty: " + request.difficultyId()));
+        }
 
         // Validate and apply question count limits
         Integer finalQuestionCount = validateQuestionCount(request.questionCount());
@@ -129,6 +141,7 @@ public class PacketGenerationController {
             Packet generatedPacket = questionGenerationService.generatePacket(
                     topic,
                     additionalContext,
+                    difficulty,
                     finalQuestionCount,
                     generateBonuses,
                     requestContext,

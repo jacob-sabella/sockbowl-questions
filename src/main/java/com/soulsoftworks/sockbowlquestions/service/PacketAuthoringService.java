@@ -479,7 +479,7 @@ public class PacketAuthoringService {
                 .toList();
 
         Tossup generated = questionGenerationService.generateTossup(
-                topic, input.additionalContext(), existing, context);
+                topic, input.additionalContext(), packet.getDifficulty(), existing, context);
         if (generated == null) {
             throw new InvalidApiRequestException("AI generation returned no tossup");
         }
