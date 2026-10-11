@@ -79,7 +79,7 @@ dependencies {
 	testImplementation 'org.testcontainers:testcontainers-neo4j'
 	testImplementation 'com.github.dasniko:testcontainers-keycloak:4.3.1'
 	// M4: real Redis for the limiter/quota ITs (same module game uses).
-	testImplementation 'com.redis:testcontainers-redis:2.2.4'
+	testImplementation 'com.redis:testcontainers-redis:3.0.0'
 	testImplementation 'org.awaitility:awaitility:4.3.0'
 }
 
