@@ -1,12 +1,12 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '4.1.1'
+	id 'org.springframework.boot' version '4.1.2'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'maven-publish'
 }
 
 ext {
-	springAiVersion = "2.0.1"
+	springAiVersion = "2.0.2"
 	// Patch number of the models jar when published outside CI (publishToMavenLocal).
 	// Bump it whenever the models change so a mavenLocal build of sockbowl-game
 	// (which resolves sockbowlquestions-models:1.0.+) picks up the new jar.
@@ -38,7 +38,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-neo4j'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-graphql'
-	implementation 'com.google.code.gson:gson:2.14.0'
+	implementation 'com.google.code.gson:gson:2.15.0'
 	implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
 	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
 	// Saved per-user Claude keys: the model module only (no starter), so no
@@ -57,10 +57,10 @@ dependencies {
 	// explicitly past the BOM (audit/m6/deps-questions.json S2 scout); drop the
 	// overrides once Spring Boot's own BOM catches up past 7.8.0.RELEASE / 3.3.0.
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-	implementation 'com.bucket4j:bucket4j_jdk17-core:8.20.0'
-	implementation 'com.bucket4j:bucket4j_jdk17-lettuce:8.20.0'
-	implementation 'io.lettuce:lettuce-core:7.8.0.RELEASE'
-	implementation 'com.github.ben-manes.caffeine:caffeine:3.3.0'
+	implementation 'com.bucket4j:bucket4j_jdk17-core:8.21.0'
+	implementation 'com.bucket4j:bucket4j_jdk17-lettuce:8.21.0'
+	implementation 'io.lettuce:lettuce-core:7.9.0.RELEASE'
+	implementation 'com.github.ben-manes.caffeine:caffeine:3.3.1'
 
 	compileOnly 'org.projectlombok:lombok:1.18.48'
 	annotationProcessor 'org.projectlombok:lombok:1.18.48'
@@ -77,7 +77,7 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 	testImplementation 'org.testcontainers:testcontainers-neo4j'
-	testImplementation 'com.github.dasniko:testcontainers-keycloak:4.3.1'
+	testImplementation 'com.github.dasniko:testcontainers-keycloak:4.4.0'
 	// M4: real Redis for the limiter/quota ITs (same module game uses).
 	testImplementation 'com.redis:testcontainers-redis:2.2.4'
 	testImplementation 'org.awaitility:awaitility:4.3.0'
